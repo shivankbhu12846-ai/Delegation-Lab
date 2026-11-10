@@ -1,0 +1,991 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Delegation Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+/* Layout: slim top bar; participant workspace = task list + task pane; experimenter = stacked panels with wide tables in their own scroll boxes */
+:root{
+  --bg:#f2f4f7; --surface:#ffffff; --sunk:#f7f8fa; --fg:#16202b; --muted:#5a6676; --line:#d8dee6;
+  --accent:#1f56c9; --accent-ink:#ffffff; --accent-soft:#e7eefc;
+  --agent:#6a45c0; --agent-soft:#f1ecfb;
+  --warn:#9a5a00; --warn-soft:#fff2dc; --bad:#bf352b; --bad-soft:#fdecea; --good:#1b7546; --good-soft:#e4f3ea;
+  --f-display:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;
+  --f-body:"Source Sans 3","Segoe UI",system-ui,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  --r:8px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f141a; --surface:#171e27; --sunk:#131920; --fg:#e5eaf0; --muted:#9aa5b4; --line:#2a3440;
+  --accent:#709cff; --accent-ink:#0b1220; --accent-soft:#1a2946;
+  --agent:#b49ef2; --agent-soft:#271f3d;
+  --warn:#f0a83a; --warn-soft:#382810; --bad:#ff7d72; --bad-soft:#3a1c1a; --good:#62d09a; --good-soft:#14301f;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f141a; --surface:#171e27; --sunk:#131920; --fg:#e5eaf0; --muted:#9aa5b4; --line:#2a3440;
+  --accent:#709cff; --accent-ink:#0b1220; --accent-soft:#1a2946;
+  --agent:#b49ef2; --agent-soft:#271f3d;
+  --warn:#f0a83a; --warn-soft:#382810; --bad:#ff7d72; --bad-soft:#3a1c1a; --good:#62d09a; --good-soft:#14301f;
+  color-scheme:dark}
+*{box-sizing:border-box}
+html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:16px;line-height:1.5}
+[hidden]{display:none!important}
+h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.15;text-wrap:balance;margin:0}
+h1{font-size:1.8rem} h2{font-size:1.3rem} h3{font-size:1.05rem}
+p{margin:0}
+a{color:var(--accent)}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.wrap{max-width:1200px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.topbar{background:var(--surface);border-bottom:1px solid var(--line)}
+.topbar .wrap{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-block:10px}
+.brand{font-family:var(--f-display);font-weight:700;font-size:1.15rem;display:flex;align-items:center;gap:8px}
+.brand i{width:10px;height:10px;border-radius:2px;background:var(--agent);display:inline-block}
+.role{font-size:.85rem;color:var(--muted);font-weight:600}
+.demobar{background:var(--warn-soft);color:var(--fg);border-bottom:1px solid var(--line);font-size:.9rem}
+.demobar .wrap{padding-block:8px;display:flex;gap:6px 14px;flex-wrap:wrap;align-items:center}
+.demobar b{color:var(--warn)}
+main.wrap{padding-block:24px 40px;display:grid;gap:20px}
+.foot{padding-block:0 32px;color:var(--muted);font-size:.85rem;display:flex;gap:14px;flex-wrap:wrap}
+.foot a{color:var(--muted)}
+.eyebrow{font-size:.74rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.muted{color:var(--muted)} .small{font-size:.88rem} .lede{max-width:65ch}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:20px;display:grid;gap:14px;min-width:0;align-content:start}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;align-items:start}
+.narrow{max-width:560px;width:100%}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:8px 15px;font-weight:600;cursor:pointer;white-space:nowrap}
+.btn:hover:not(:disabled){border-color:var(--muted)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.agent{background:var(--agent-soft);border-color:var(--agent);color:var(--agent)}
+.btn.danger{color:var(--bad);border-color:var(--bad)}
+.btn.armed{background:var(--bad);border-color:var(--bad);color:#fff}
+.btn.sm{padding:4px 10px;font-size:.85rem}
+.linkbtn{background:none;border:0;padding:0;color:var(--accent);cursor:pointer;text-decoration:underline;font-weight:600}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.spacer{flex:1}
+label.field{display:grid;gap:4px;font-weight:600;font-size:.92rem}
+input[type=text],input[type=password],input[type=number],select,textarea{background:var(--sunk);border:1px solid var(--line);border-radius:6px;padding:8px 10px;width:100%}
+input.code{font-family:var(--f-mono);letter-spacing:.12em;text-transform:uppercase}
+textarea{min-height:200px;resize:vertical;line-height:1.5}
+textarea:disabled{opacity:.65}
+.check{display:flex;gap:8px;align-items:center;font-weight:600;font-size:.92rem;cursor:pointer}
+.seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;width:fit-content;max-width:100%}
+.seg label{padding:7px 13px;cursor:pointer;font-weight:600;font-size:.92rem}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg label:has(input:checked){background:var(--accent);color:var(--accent-ink)}
+.seg label:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:-2px}
+.err{color:var(--bad);font-weight:600;font-size:.92rem}
+.ok{color:var(--good);font-weight:600;font-size:.92rem}
+.chip{display:inline-block;font-size:.74rem;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--sunk);color:var(--muted);border:1px solid var(--line);white-space:nowrap}
+.chip.own{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+.chip.agent{background:var(--agent-soft);color:var(--agent);border-color:transparent}
+.chip.warn{background:var(--warn-soft);color:var(--warn);border-color:transparent}
+.chip.good{background:var(--good-soft);color:var(--good);border-color:transparent}
+.chip.bad{background:var(--bad-soft);color:var(--bad);border-color:transparent}
+.disclaimer{border:1px dashed var(--agent);background:var(--agent-soft);border-radius:6px;padding:10px 12px;font-size:.92rem}
+.disclaimer b{color:var(--agent)}
+.rules{display:grid;gap:10px;margin:0;padding-left:20px}
+.scaletbl{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));border:1px solid var(--line);border-radius:6px;overflow:hidden;font-size:.86rem;text-align:center}
+.scaletbl div{padding:6px 4px;border-left:1px solid var(--line)} .scaletbl div:first-child{border-left:0}
+.scaletbl b{display:block;font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.bigcode{font-family:var(--f-mono);font-size:2rem;letter-spacing:.14em;font-weight:500}
+/* participant workspace */
+.runbar{display:flex;gap:12px 20px;align-items:center;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 16px}
+.runbar.preview{border-color:var(--warn);box-shadow:inset 4px 0 0 var(--warn)}
+.timer{font-family:var(--f-mono);font-size:1.7rem;font-variant-numeric:tabular-nums;line-height:1.1}
+.timer.warn{color:var(--warn)} .timer.crit{color:var(--bad)}
+.work{display:grid;grid-template-columns:300px minmax(0,1fr);gap:20px;align-items:start}
+@media (max-width:780px){.work{grid-template-columns:1fr}}
+.tasklist{display:grid;gap:6px;max-height:calc(100vh - 220px);overflow:auto;padding:2px}
+@media (max-width:780px){.tasklist{max-height:260px}}
+.tasklist button{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:8px 10px;cursor:pointer;min-width:0}
+.tasklist button[aria-current="true"]{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+.tasklist button.done{opacity:.72}
+.tasklist .num{font-family:var(--f-mono);font-size:.78rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.tasklist .t{font-weight:600;font-size:.92rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.situation{display:grid;gap:4px;border-left:3px solid var(--accent);padding:2px 0 2px 12px}
+.materials{background:var(--sunk);border:1px solid var(--line);border-radius:6px;padding:12px 14px;white-space:pre-wrap;font-size:.95rem}
+.answerbox{white-space:pre-wrap;background:var(--sunk);border:1px solid var(--line);border-radius:6px;padding:14px;font-size:.98rem}
+.agentnote{border-left:3px solid var(--agent);background:var(--agent-soft);padding:8px 12px;border-radius:0 6px 6px 0;font-size:.92rem}
+.working{display:inline-flex;gap:8px;align-items:center;color:var(--agent);font-weight:600}
+.working i{width:8px;height:8px;border-radius:50%;background:var(--agent);animation:pulse 1s infinite ease-in-out}
+@keyframes pulse{50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.working i{animation:none}}
+.memberlist{display:flex;gap:8px;flex-wrap:wrap}
+.memberlist span{border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-weight:600;font-size:.9rem;background:var(--sunk)}
+.memberlist span.me{background:var(--accent-soft);border-color:transparent;color:var(--accent)}
+.memberlist span.empty{border-style:dashed;color:var(--muted);font-weight:400}
+/* grader */
+.scale{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.scale button{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:14px 6px;cursor:pointer;font-weight:700;font-size:.95rem}
+.scale button:hover:not(:disabled){border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+@media (max-width:520px){.scale{grid-template-columns:1fr}}
+.progress{height:6px;background:var(--line);border-radius:3px;overflow:hidden}
+.progress i{display:block;height:100%;background:var(--accent)}
+details summary{cursor:pointer}
+/* experimenter */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px}
+.kv{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 16px;font-size:.94rem;margin:0}
+.kv dt{color:var(--muted)} .kv dd{margin:0;font-weight:700;font-variant-numeric:tabular-nums;text-align:right}
+.big{font-family:var(--f-display);font-size:2.2rem;font-weight:700;font-variant-numeric:tabular-nums;line-height:1}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:6px;max-width:100%}
+table{border-collapse:collapse;width:100%;font-size:.88rem;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:top}
+th{background:var(--sunk);font-weight:700;color:var(--muted);font-size:.74rem;text-transform:uppercase;letter-spacing:.05em}
+tr:last-child td{border-bottom:0}
+tr.trial td{background:var(--warn-soft)}
+tr.clickable{cursor:pointer} tr.clickable:hover td{background:var(--sunk)}
+td.num,th.num{text-align:right}
+td.wrapcell{white-space:normal}
+.diffrow td{background:var(--sunk);white-space:normal}
+.diffgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;padding:6px 0}
+.diff{white-space:pre-wrap;line-height:1.55;font-size:.92rem;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px}
+.diff del{background:var(--bad-soft);color:var(--bad);text-decoration:line-through}
+.diff ins{background:var(--good-soft);color:var(--good);text-decoration:none}
+.filters{display:flex;gap:10px;flex-wrap:wrap;align-items:end}
+.filters label.field{min-width:150px}
+svg text{fill:var(--muted);font-family:var(--f-body);font-size:12px}
+.csvbox{min-height:140px;font-family:var(--f-mono);font-size:.78rem}
+</style>
+</head>
+<body>
+<header class="topbar"><div class="wrap"><div class="brand"><i aria-hidden="true"></i>Delegation Lab</div><span class="role" id="role"></span></div></header>
+<div class="demobar" id="demobar" hidden><div class="wrap"><b>Demo mode.</b><span>Data stays in this browser and the AI agent uses prepared answers.</span><a href="#">Participant</a><a href="#grade">Grader</a><a href="#admin">Experimenter</a><span class="muted">Passwords: experimenter <code>admin</code>, grader <code>grader</code></span></div></div>
+<main class="wrap" id="app" aria-live="polite"></main>
+<footer class="wrap foot" id="foot"><a href="#">Participant</a><a href="#grade">Grader</a><a href="#admin">Experimenter</a></footer>
+
+<script>
+"use strict";
+/* ================= shared ================= */
+const SCALE = [[-2,"Bad"],[-1,"Not good"],[0,"Satisfactory"],[1,"Good"],[2,"Very good"]];
+const LABEL = Object.fromEntries(SCALE);
+const RS_PER_POINT = 2;
+const DISCLAIMER = "Past organisational experience shows that the AI agent’s output is rated Good or Very good about 75% of the time.";
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const ls = {
+  get(k){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; }catch(e){ return null; } },
+  set(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} },
+  del(k){ try{ localStorage.removeItem(k); }catch(e){} },
+};
+let skew = 0;
+const serverNow = () => Date.now() + skew;
+const mmss = (ms) => { const s = Math.max(0, Math.ceil(ms/1000)); return String(Math.floor(s/60)).padStart(2,"0") + ":" + String(s%60).padStart(2,"0"); };
+const pct = (x) => x == null || isNaN(x) ? "–" : Math.round(x*100) + "%";
+const sgn = (x, d=1) => x == null || isNaN(x) ? "–" : (x > 0 ? "+" : x < 0 ? "−" : "") + Math.abs(x).toFixed(d);
+const inr = (x) => x == null ? "–" : "₹" + (Math.round(x*100)/100).toLocaleString("en-IN", {minimumFractionDigits: x % 1 ? 2 : 0, maximumFractionDigits: 2});
+const mean = (a) => a.length ? a.reduce((x,y)=>x+y,0)/a.length : null;
+
+async function api(method, path, body, key){
+  const headers = {"content-type":"application/json"};
+  if (key) headers["x-key"] = key;
+  const init = { method, headers };
+  if (body && method === "POST") init.body = JSON.stringify(body);
+  let res;
+  try {
+    res = window.DEMO_HANDLER ? await window.DEMO_HANDLER(new Request("https://demo.local/api" + path, init)) : await fetch("/api" + path, init);
+  } catch (e) { throw new Error("Can't reach the server. Check your internet connection and try again."); }
+  let data = {};
+  try { data = await res.json(); } catch (e) {}
+  if (!res.ok) {
+    const err = new Error(data.error || (res.status === 404 ? "The server isn't running. If you're the experimenter, check the Netlify deploy." : `Server error (${res.status}). Try again.`));
+    err.status = res.status; throw err;
+  }
+  return data;
+}
+
+/* Re-render without losing the caret in whatever field has focus */
+function paint(html){
+  const a = document.activeElement, id = a && a.id;
+  let sel = null;
+  if (id && (a.tagName === "TEXTAREA" || a.tagName === "INPUT")) { try { sel = [a.selectionStart, a.selectionEnd, a.scrollTop]; } catch(e){} }
+  $("#app").innerHTML = html;
+  if (id) { const el = document.getElementById(id); if (el && !el.disabled) { el.focus({preventScroll:true}); if (sel) { try { el.setSelectionRange(sel[0], sel[1]); el.scrollTop = sel[2]; } catch(e){} } } }
+}
+
+/* Word-level diff for the experimenter view */
+function diffTokens(a, b){
+  const A = a.split(/(\s+)/).filter(Boolean), B = b.split(/(\s+)/).filter(Boolean);
+  if (A.length * B.length > 4e6) return [["del", a], ["ins", b]];
+  const n = A.length, m = B.length, L = Array.from({length:n+1}, () => new Uint16Array(m+1));
+  for (let i=n-1;i>=0;i--) for (let j=m-1;j>=0;j--) L[i][j] = A[i]===B[j] ? L[i+1][j+1]+1 : Math.max(L[i+1][j], L[i][j+1]);
+  const ops = []; let i=0, j=0;
+  const push = (t, s) => { const last = ops[ops.length-1]; if (last && last[0]===t) last[1]+=s; else ops.push([t,s]); };
+  while (i<n && j<m) { if (A[i]===B[j]) { push("eq",A[i]); i++; j++; } else if (L[i+1][j] >= L[i][j+1]) { push("del",A[i]); i++; } else { push("ins",B[j]); j++; } }
+  while (i<n) push("del",A[i++]); while (j<m) push("ins",B[j++]);
+  return ops;
+}
+const diffHtml = (a, b) => diffTokens(a, b).map(([t,s]) => t==="eq" ? esc(s) : t==="del" ? `<del>${esc(s)}</del>` : `<ins>${esc(s)}</ins>`).join("");
+
+/* Two-click confirmation for destructive buttons */
+const armed = {};
+function confirmClick(btn, key, label, action){
+  if (armed[key]) { clearTimeout(armed[key]); delete armed[key]; action(); return; }
+  btn.dataset.orig = btn.textContent; btn.textContent = label; btn.classList.add("armed");
+  armed[key] = setTimeout(() => { delete armed[key]; if (btn.isConnected) { btn.textContent = btn.dataset.orig; btn.classList.remove("armed"); } }, 4000);
+}
+
+function view(){ const h = location.hash.slice(1); return h === "grade" ? "grade" : h === "admin" ? "admin" : "participant"; }
+let timers = [];
+function clearTimers(){ timers.forEach(clearInterval); timers = []; }
+function render(){
+  const v = view();
+  $("#role").textContent = v === "grade" ? "Grader" : v === "admin" ? "Experimenter" : "";
+  if (v === "participant") P.render(); else if (v === "grade") G.render(); else A.render();
+}
+window.addEventListener("hashchange", () => { clearTimers(); boot(); });
+
+/* ================= participant ================= */
+const P = {
+  creds: ls.get("dl-creds"), state: null, drafts: {}, agent: {}, submitted: {}, current: null,
+  pendingAgent: {}, pendingSubmit: {}, error: "", joinError: "", loading: false, sig: "",
+
+  draftsKey(){ return `dl-drafts-${this.creds.code}-${this.creds.memberId}`; },
+  saveDrafts(){ if (this.creds) ls.set(this.draftsKey(), this.drafts); },
+
+  async start(){
+    if (!this.creds) { this.render(); return; }
+    this.drafts = ls.get(this.draftsKey()) || {};
+    await this.poll(true);
+    timers.push(setInterval(() => this.tick(), 500));
+  },
+  schedulePoll(){
+    clearTimeout(this.pollT);
+    const st = this.state; if (!st || view() !== "participant") return;
+    if (st.phase === "finished" && serverNow() > st.endsAt + 8000) return;
+    this.pollT = setTimeout(() => this.poll(false), st.size > 1 || st.phase === "lobby" ? 2000 : 5000);
+  },
+  async poll(full){
+    if (!this.creds) return;
+    const c = this.creds;
+    try {
+      const t0 = Date.now();
+      const st = await api("GET", `/state?code=${encodeURIComponent(c.code)}&memberId=${encodeURIComponent(c.memberId)}&token=${encodeURIComponent(c.token)}${full || !this.state || (this.state.phase === "lobby") ? "&full=1" : ""}`);
+      skew = st.now - Math.round((t0 + Date.now())/2);
+      this.apply(st);
+    } catch (e) {
+      if (e.status === 401 || e.status === 404) { this.leave(e.message); return; }
+      this.error = e.message; this.render();
+    }
+    this.schedulePoll();
+  },
+  apply(st){
+    if (st.mine) {
+      for (const [id, text] of Object.entries(st.mine.agent)) { this.agent[id] = text; if (this.drafts[id] == null) this.drafts[id] = text; }
+      Object.assign(this.submitted, st.mine.submitted);
+    }
+    this.state = st;
+    if (st.tasks && (!this.current || !st.tasks.some(t => t.id === this.current))) this.current = (st.tasks.find(t => !st.status[t.id]?.by) || st.tasks[0]).id;
+    const sig = JSON.stringify([st.phase, st.members.map(m=>m.memberId), st.status, !!st.tasks]);
+    if (sig !== this.sig) { this.sig = sig; this.error = this.error && !/server|connection/i.test(this.error) ? this.error : ""; this.render(); }
+  },
+  phase(){
+    const st = this.state; if (!st || st.phase === "lobby") return st ? "lobby" : null;
+    const t = serverNow();
+    return t < st.workStartsAt ? "preview" : t < st.endsAt ? "work" : "finished";
+  },
+  tick(){
+    const st = this.state; if (!st || st.phase === "lobby") return;
+    const ph = this.phase();
+    if (ph !== st.phase) { st.phase = ph; this.render(); this.poll(true); return; }
+    const el = $("#timer");
+    if (el) {
+      const left = (ph === "preview" ? st.workStartsAt : st.endsAt) - serverNow();
+      el.textContent = mmss(left);
+      el.className = "timer" + (ph === "work" ? (left <= 30000 ? " crit" : left <= 120000 ? " warn" : "") : "");
+    }
+  },
+  leave(msg){
+    clearTimeout(this.pollT);
+    if (this.creds) ls.del(this.draftsKey());
+    ls.del("dl-creds"); this.creds = null; this.state = null; this.sig = ""; this.drafts = {}; this.agent = {}; this.submitted = {}; this.current = null;
+    this.joinError = msg || ""; this.render();
+  },
+  async join(code, name){
+    this.joinError = ""; this.loading = true; this.render();
+    try {
+      const r = await api("POST", "/join", { code, name });
+      this.creds = { code: r.code, memberId: r.memberId, name: r.name, token: r.token };
+      ls.set("dl-creds", this.creds);
+      try { history.replaceState(null, "", location.pathname + location.hash); } catch(e){}
+      this.loading = false; await this.start();
+    } catch (e) { this.loading = false; this.joinError = e.message; this.render(); }
+  },
+  async begin(){
+    try { await api("POST", "/start", this.creds); await this.poll(true); }
+    catch (e) { this.error = e.message; this.render(); }
+  },
+  async askAgent(id){
+    if (this.pendingAgent[id]) return;
+    this.pendingAgent[id] = true; this.error = ""; this.render();
+    try {
+      const r = await api("POST", "/agent", { ...this.creds, taskId: id });
+      this.agent[id] = r.text; this.drafts[id] = r.text; this.saveDrafts();
+    } catch (e) { this.error = e.message; }
+    delete this.pendingAgent[id]; this.render(); this.poll(false);
+  },
+  async submit(id){
+    const text = this.drafts[id] || "";
+    if (!text.trim()) { this.error = "Write an answer or ask the AI agent before submitting."; this.render(); return; }
+    if (this.pendingSubmit[id]) return;
+    this.pendingSubmit[id] = true; this.error = ""; this.render();
+    try {
+      await api("POST", "/submit", { ...this.creds, taskId: id, text });
+      this.submitted[id] = text;
+      const st = this.state; (st.status[id] ||= {}).by = this.creds.name; st.status[id].mine = true;
+      const next = st.tasks.find(t => !st.status[t.id]?.by);
+      if (next) this.current = next.id;
+    } catch (e) { this.error = e.message; }
+    delete this.pendingSubmit[id]; this.render(); this.poll(false);
+  },
+
+  render(){
+    if (view() !== "participant") return;
+    if (!this.creds) return paint(this.joinView());
+    if (!this.state) return paint(`<section class="panel narrow"><p class="muted">Loading your session…</p>${this.error ? `<p class="err">${esc(this.error)}</p>` : ""}</section>`);
+    const ph = this.phase();
+    if (ph === "lobby") return paint(this.lobbyView());
+    if (ph === "finished") return paint(this.doneView());
+    paint(this.workView(ph));
+  },
+  joinView(){
+    const code = new URLSearchParams(location.search).get("s") || "";
+    return `
+    <section class="panel narrow">
+      <div class="eyebrow">Participant</div>
+      <h1>Join a session</h1>
+      <p class="muted">Enter the session code the experimenter gave you, and your name. In a group session, all four members join with the same code from their own computers.</p>
+      <form id="joinform" class="panel" style="padding:0;border:0">
+        <label class="field" for="j-code">Session code<input type="text" class="code" id="j-code" autocomplete="off" maxlength="8" value="${esc(code)}" required></label>
+        <label class="field" for="j-name">Your name<input type="text" id="j-name" autocomplete="name" maxlength="40" required></label>
+        ${this.joinError ? `<p class="err" role="alert">${esc(this.joinError)}</p>` : ""}
+        <div class="row"><button class="btn primary" type="submit" ${this.loading ? "disabled" : ""}>${this.loading ? "Joining…" : "Join session"}</button></div>
+      </form>
+    </section>`;
+  },
+  rulesHtml(st){
+    const group = st.condition === "group";
+    return `
+      <ol class="rules">
+        <li>${group
+          ? `Your group shares <b>${st.totalTasks} workplace tasks</b>. Any member can do any task, and once a task is submitted it's done for the whole group. Agree among yourselves who does what.`
+          : `You get <b>${st.totalTasks} workplace tasks</b>.`}</li>
+        <li>You have <b>${Math.round(st.previewSec/60*10)/10 === 1 ? "1 minute" : st.previewSec + " seconds"}</b> to read the tasks, then <b>${st.workSec % 60 ? st.workSec + " seconds" : st.workSec/60 + " minutes"}</b> to work.</li>
+        <li>For each task, write the answer yourself or ask the AI agent. You can edit the agent's draft before submitting. <b>Only submitted tasks count.</b></li>
+        <li>Independent graders rate every submitted task on this scale. Anything below Satisfactory costs points.</li>
+      </ol>
+      <div class="scaletbl" aria-label="Rating scale">${SCALE.map(([v,l]) => `<div>${l}<b>${v>0?"+":v<0?"−":""}${Math.abs(v)}</b></div>`).join("")}</div>
+      <p>${group
+        ? `<b>Payment:</b> your group earns max(total points × ₹${RS_PER_POINT}, 0). It is split equally among all members, regardless of who did which task.`
+        : `<b>Payment:</b> you earn max(total points × ₹${RS_PER_POINT}, 0).`}</p>
+      ${st.plantedErrors ? `<div class="disclaimer"><b>About the AI agent.</b> ${esc(DISCLAIMER)}</div>` : ""}`;
+  },
+  lobbyView(){
+    const st = this.state, group = st.condition === "group";
+    const slots = Array.from({length: st.size}, (_, i) => st.members[i]);
+    const full = st.members.length >= st.size;
+    return `
+    <section class="grid2">
+      <div class="panel">
+        <div class="eyebrow">${group ? "Group session" : "Individual session"} · ${esc(st.code)}</div>
+        <h1>${full ? "Ready to start" : group ? "Waiting for your group" : "Ready to start"}</h1>
+        ${group ? `<p class="muted">${st.members.length} of ${st.size} members have joined.</p>
+          <div class="memberlist">${slots.map(m => m ? `<span class="${m.memberId === st.me.memberId ? "me" : ""}">${esc(m.name)}${m.memberId === st.me.memberId ? " (you)" : ""}</span>` : `<span class="empty">Waiting…</span>`).join("")}</div>` :
+          `<p>Signed in as <b>${esc(st.me.name)}</b>.</p>`}
+        <p class="muted small">${group ? "Any member can start once all four have joined. Starting begins the reading minute for everyone." : "The clock starts as soon as you press Start."}</p>
+        ${this.error ? `<p class="err" role="alert">${esc(this.error)}</p>` : ""}
+        <div class="row">
+          <button type="button" class="btn primary" data-act="begin" ${full ? "" : "disabled"}>Start</button>
+          <div class="spacer"></div>
+          <button type="button" class="linkbtn small" data-act="leave">Not ${esc(st.me.name)}? Leave</button>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="eyebrow">How it works</div>
+        ${this.rulesHtml(st)}
+      </div>
+    </section>`;
+  },
+  workView(ph){
+    const st = this.state, preview = ph === "preview", group = st.condition === "group";
+    const doneCount = st.tasks.filter(t => st.status[t.id]?.by).length;
+    const mineCount = st.tasks.filter(t => st.status[t.id]?.mine).length;
+    const idx = st.tasks.findIndex(t => t.id === this.current);
+    const task = st.tasks[idx];
+    const s = st.status[task.id] || {};
+    const left = (preview ? st.workStartsAt : st.endsAt) - serverNow();
+    const chip = (t) => {
+      const x = st.status[t.id] || {};
+      if (x.mine) return `<span class="chip own">Submitted</span>`;
+      if (x.by) return `<span class="chip">Done · ${esc(x.by)}</span>`;
+      if (this.agent[t.id]) return `<span class="chip agent">AI draft</span>`;
+      if ((this.drafts[t.id] || "").trim()) return `<span class="chip warn">Draft</span>`;
+      return `<span class="chip">Open</span>`;
+    };
+    const othersAi = (s.ai || []).filter(n => n !== st.me.name);
+    const draft = this.drafts[task.id] ?? "";
+    let body;
+    if (s.by) {
+      body = s.mine
+        ? `<div class="eyebrow">Your submission</div><div class="answerbox">${esc(this.submitted[task.id] ?? "")}</div><p class="ok">Submitted.</p>`
+        : `<p class="muted">${esc(s.by)} submitted this task for the group.</p>`;
+    } else {
+      body = `
+        ${this.agent[task.id] ? `<div class="agentnote">This is the AI agent's draft. Edit it if you need to, then submit.</div>` : ""}
+        <label class="field" for="answer">Your answer</label>
+        <textarea id="answer" ${preview ? "disabled" : ""} placeholder="${preview ? "You can start writing when the reading minute ends." : "Write your answer here, or ask the AI agent."}">${esc(draft)}</textarea>
+        ${group && othersAi.length ? `<p class="small muted">${esc(othersAi.join(", "))} also asked the AI agent for this task.</p>` : ""}
+        ${this.error ? `<p class="err" role="alert">${esc(this.error)}</p>` : ""}
+        <div class="row">
+          ${this.pendingAgent[task.id] ? `<span class="working"><i></i>AI agent working…</span>` :
+            `<button type="button" class="btn agent" data-act="agent" data-id="${task.id}" ${preview || this.agent[task.id] ? "disabled" : ""}>${this.agent[task.id] ? "AI draft received" : "Ask the AI agent"}</button>`}
+          <div class="spacer"></div>
+          <button type="button" class="btn primary" data-act="submit" data-id="${task.id}" ${preview || this.pendingAgent[task.id] || this.pendingSubmit[task.id] ? "disabled" : ""}>${this.pendingSubmit[task.id] ? "Submitting…" : "Submit"}</button>
+        </div>
+        ${st.plantedErrors ? `<p class="small muted">${esc(DISCLAIMER)}</p>` : ""}`;
+    }
+    return `
+    <div class="runbar ${preview ? "preview" : ""}">
+      <div><div class="eyebrow">${preview ? "Reading time – answers open in" : "Time left"}</div><div class="timer" id="timer">${mmss(left)}</div></div>
+      <div class="small"><b>${doneCount} of ${st.tasks.length}</b> tasks submitted${group ? ` by your group · ${mineCount} by you` : ""}</div>
+      <div class="spacer"></div>
+      <div class="small muted">${group ? "Group" : "Individual"} · ${esc(st.code)} · <b>${esc(st.me.name)}</b></div>
+    </div>
+    <div class="work">
+      <nav class="tasklist" aria-label="Tasks">
+        ${st.tasks.map((t, i) => `<button type="button" data-open="${t.id}" class="${st.status[t.id]?.by ? "done" : ""}" aria-current="${t.id === task.id}"><span class="num">${String(i+1).padStart(2,"0")}</span><span class="t">${esc(t.title)}</span>${chip(t)}</button>`).join("")}
+      </nav>
+      <section class="panel">
+        <div class="eyebrow">${esc(task.kind)} · Task ${idx+1} of ${st.tasks.length}</div>
+        <h2>${esc(task.title)}</h2>
+        <div class="situation"><span class="eyebrow">Situation</span><p>${esc(task.context)}</p></div>
+        <p><b>Task:</b> ${esc(task.prompt)}</p>
+        <div class="materials">${esc(task.materials)}</div>
+        ${body}
+      </section>
+    </div>`;
+  },
+  doneView(){
+    const st = this.state, group = st.condition === "group";
+    const tasks = st.tasks || [];
+    const mine = tasks.filter(t => st.status[t.id]?.mine);
+    const team = tasks.filter(t => st.status[t.id]?.by);
+    return `
+    <section class="panel narrow">
+      <div class="eyebrow">${group ? "Group session" : "Individual session"} · ${esc(st.code)}</div>
+      <h1>Time's up</h1>
+      <p>Thank you${group ? "" : ", " + esc(st.me.name)}. ${group ? `Your group submitted <b>${team.length} of ${tasks.length}</b> tasks, ${mine.length} of them by you.` : `You submitted <b>${mine.length} of ${tasks.length}</b> tasks.`}</p>
+      <p class="muted">Independent graders will now rate the submissions. Your payment is worked out once grading is complete${group ? " and is split equally across the group" : ""}.</p>
+      <div class="row"><button type="button" class="btn" data-act="leave">Finish and sign out</button></div>
+    </section>`;
+  },
+};
+
+/* ================= grader ================= */
+const G = {
+  judge: ls.get("dl-judge"), key: ls.get("dl-gkey"), item: null, error: "", busy: false,
+  async start(){ if (this.judge && this.key) await this.next(); else this.render(); },
+  async next(){
+    this.busy = true; this.render();
+    try { this.item = await api("POST", "/grade/next", { judge: this.judge }, this.key); this.error = ""; }
+    catch (e) { this.error = e.message; if (e.status === 401 || e.status === 503) { this.key = null; ls.del("dl-gkey"); } }
+    this.busy = false; this.render();
+  },
+  async rate(score){
+    if (!this.item || this.busy) return;
+    this.busy = true; this.render();
+    try { await api("POST", "/grade/rate", { judge: this.judge, ref: this.item.ref, score }, this.key); this.busy = false; await this.next(); window.scrollTo({top:0}); }
+    catch (e) { this.busy = false; this.error = e.message; this.render(); }
+  },
+  render(){
+    if (view() !== "grade") return;
+    if (!this.judge || !this.key) return paint(`
+      <section class="panel narrow">
+        <div class="eyebrow">Grader</div>
+        <h1>Grade submissions</h1>
+        <p class="muted">You'll see one submission at a time, with the task it answers. Rate how well it does the job, as if a colleague had handed it to you. You won't see who wrote it or how it was made.</p>
+        <form id="gform" class="panel" style="padding:0;border:0">
+          <label class="field" for="g-name">Your name<input type="text" id="g-name" autocomplete="name" maxlength="40" value="${esc(this.judge || "")}" required></label>
+          <label class="field" for="g-key">Grader password<input type="password" id="g-key" autocomplete="current-password" required></label>
+          ${this.error ? `<p class="err" role="alert">${esc(this.error)}</p>` : ""}
+          <div class="row"><button class="btn primary" type="submit">Start grading</button></div>
+        </form>
+      </section>`);
+    const it = this.item, pr = it?.progress || {done:0,total:0};
+    const head = `
+      <section class="panel">
+        <div class="row"><div><div class="eyebrow">Grader</div><b>${esc(this.judge)}</b></div><div class="spacer"></div>
+          <span class="small muted">${pr.done} of ${pr.total} graded</span>
+          <button type="button" class="btn sm" data-act="g-refresh">Refresh</button>
+          <button type="button" class="btn sm" data-act="g-out">Sign out</button></div>
+        <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="${pr.total}" aria-valuenow="${pr.done}"><i style="width:${pr.total ? pr.done/pr.total*100 : 0}%"></i></div>
+      </section>`;
+    if (!it) return paint(head + `<section class="panel">${this.error ? `<p class="err">${esc(this.error)}</p>` : `<p class="muted">Loading…</p>`}</section>`);
+    if (it.empty) return paint(head + `<section class="panel"><h2>Nothing to grade right now</h2><p class="muted">You've graded every submission from finished sessions. New ones appear here when sessions end. Press Refresh to check.</p></section>`);
+    const t = it.task;
+    paint(head + `
+      <section class="panel">
+        <div class="eyebrow">${esc(t.kind)}</div>
+        <h2>${esc(t.title)}</h2>
+        <div class="situation"><span class="eyebrow">Situation</span><p>${esc(t.context)}</p></div>
+        <p><b>Task:</b> ${esc(t.prompt)}</p>
+        <div class="materials">${esc(t.materials)}</div>
+        <div class="eyebrow">Submission</div>
+        <div class="answerbox">${esc(it.text)}</div>
+        <div class="eyebrow">Your rating</div>
+        <div class="scale">${SCALE.map(([v,l]) => `<button type="button" data-rate="${v}" ${this.busy ? "disabled" : ""}>${l}</button>`).join("")}</div>
+        ${this.error ? `<p class="err" role="alert">${esc(this.error)}</p>` : ""}
+      </section>`);
+  },
+};
+
+/* ================= experimenter ================= */
+const A = {
+  key: ls.get("dl-akey"), info: null, data: null, error: "", notice: "", busy: false,
+  includeTrial: !!ls.get("dl-incl-trial"), filter: { code: "all", condition: "all", kind: "all" },
+  expanded: new Set(), selected: new Set(), form: { condition: "individual", label: "", trial: false }, created: null,
+  settingsDraft: null, csv: "", updatedAt: 0,
+
+  async start(){
+    if (!this.key) return this.render();
+    try { this.info = await api("POST", "/admin/check", {}, this.key); this.settingsDraft = { ...this.info.settings }; }
+    catch (e) { this.error = e.message; if (e.status === 401 || e.status === 503) { this.key = null; ls.del("dl-akey"); } return this.render(); }
+    await this.load();
+    timers.push(setInterval(() => this.tickClocks(), 1000));
+    timers.push(setInterval(() => { if (document.visibilityState !== "hidden" && !Object.keys(armed).length) this.load(true); }, 6000));
+  },
+  async load(quiet){
+    try { this.data = await api("POST", "/admin/data", {}, this.key); skew = this.data.now - Date.now(); this.updatedAt = Date.now(); if (!quiet) this.error = ""; }
+    catch (e) { this.error = e.message; }
+    for (const c of [...this.selected]) if (!this.data?.sessions.some(s => s.code === c)) this.selected.delete(c);
+    this.render();
+  },
+  async act(path, body, notice){
+    this.busy = true; this.error = ""; this.render();
+    try { const r = await api("POST", path, body, this.key); this.notice = typeof notice === "function" ? notice(r) : notice || ""; this.busy = false; await this.load(); return r; }
+    catch (e) { this.busy = false; this.error = e.message; this.render(); }
+  },
+  tickClocks(){
+    document.querySelectorAll("[data-until]").forEach(el => { el.textContent = mmss(+el.dataset.until - serverNow()); });
+    const d = this.data; if (!d) return;
+    const needs = d.sessions.some(s => s.phase !== "lobby" && s.phase !== "finished" && serverNow() > (s.phase === "preview" ? s.workStartsAt : s.endsAt));
+    if (needs) this.load(true);
+  },
+
+  compute(){
+    const d = this.data, inc = (s) => s && (this.includeTrial || !s.trial);
+    const S = Object.fromEntries(d.sessions.map(s => [s.code, s]));
+    const ratingMap = {};
+    d.ratings.forEach(r => { (ratingMap[r.code + "/" + r.taskId] ||= []).push(r); });
+    const memberName = {};
+    d.members.forEach(m => { memberName[m.code + "/" + m.memberId] = m.name; });
+    const subs = d.subs.filter(s => inc(S[s.code])).map(s => {
+      const rs = ratingMap[s.code + "/" + s.taskId] || [];
+      return { ...s, name: memberName[s.code + "/" + s.memberId] || s.memberId, ratings: rs, grade: rs.length ? mean(rs.map(r => r.score)) : null, kind: "sub" };
+    });
+    const subKey = new Set(d.subs.map(s => s.code + "/" + s.taskId + "/" + s.memberId));
+    const unsubmittedAi = d.agents.filter(a => inc(S[a.code]) && !subKey.has(a.code + "/" + a.taskId + "/" + a.memberId))
+      .map(a => ({ ...a, name: memberName[a.code + "/" + a.memberId] || a.memberId, condition: S[a.code].condition, kind: "ai-only" }));
+    const people = d.members.filter(m => inc(S[m.code])).map(m => {
+      const mine = subs.filter(s => s.code === m.code && s.memberId === m.memberId);
+      const ai = mine.filter(s => s.aiUsed);
+      const weakAi = ai.filter(s => s.version === "weak");
+      return {
+        code: m.code, memberId: m.memberId, name: m.name, condition: S[m.code].condition, trial: S[m.code].trial,
+        submitted: mine.length, aiUsed: ai.length, share: mine.length ? ai.length / mine.length : null,
+        aiCalls: d.agents.filter(a => a.code === m.code && a.memberId === m.memberId).length,
+        editMean: ai.length ? mean(ai.map(s => s.editRatio)) : null, unedited: ai.filter(s => !s.edited).length,
+        weakAi: weakAi.length, weakUnedited: weakAi.filter(s => !s.edited).length,
+        points: mine.reduce((x, s) => x + (s.grade ?? 0), 0),
+      };
+    });
+    const sessions = d.sessions.map(s => {
+      const ss = d.subs.filter(x => x.code === s.code).map(x => ({ ...x, rs: ratingMap[x.code + "/" + x.taskId] || [] }));
+      const graded = ss.filter(x => x.rs.length);
+      const points = graded.reduce((acc, x) => acc + mean(x.rs.map(r => r.score)), 0);
+      const mem = d.members.filter(m => m.code === s.code);
+      const pool = Math.max(points * RS_PER_POINT, 0);
+      return { ...s, members: mem, subCount: ss.length, aiCount: ss.filter(x => x.aiUsed).length, graded: graded.length, points,
+        pool, perPerson: mem.length ? pool / (s.condition === "group" ? mem.length : 1) : 0, complete: ss.length > 0 && graded.length === ss.length };
+    }).sort((a, b) => b.createdAt - a.createdAt);
+    const cond = (c) => {
+      const ps = people.filter(p => p.condition === c && p.share != null);
+      const cs = subs.filter(s => s.condition === c);
+      const ai = cs.filter(s => s.aiUsed), weak = ai.filter(s => s.version === "weak");
+      const gr = cs.filter(s => s.grade != null);
+      return { c, people: ps.length, sessions: new Set(ps.map(p => p.code)).size,
+        share: mean(ps.map(p => p.share)), subs: cs.length, ai: ai.length,
+        edit: ai.length ? mean(ai.map(s => s.editRatio)) : null, unedited: ai.filter(s => !s.edited).length,
+        weak: weak.length, weakUnedited: weak.filter(s => !s.edited).length,
+        grade: gr.length ? mean(gr.map(s => s.grade)) : null,
+        gradeAi: ai.filter(s => s.grade != null).length ? mean(ai.filter(s => s.grade != null).map(s => s.grade)) : null,
+        gradeOwn: cs.filter(s => !s.aiUsed && s.grade != null).length ? mean(cs.filter(s => !s.aiUsed && s.grade != null).map(s => s.grade)) : null,
+        aiOnly: unsubmittedAi.filter(a => a.condition === c).length };
+    };
+    const judges = {};
+    d.ratings.forEach(r => { judges[r.judge] = (judges[r.judge] || 0) + 1; });
+    return { S, subs, unsubmittedAi, people, sessions, ind: cond("individual"), grp: cond("group"), judges, totalSubs: d.subs.length };
+  },
+
+  render(){
+    if (view() !== "admin") return;
+    if (!this.key || !this.info) return paint(`
+      <section class="panel narrow">
+        <div class="eyebrow">Experimenter</div>
+        <h1>Sign in</h1>
+        <p class="muted">Create sessions, watch them live, and see every response, AI use and edit.</p>
+        <form id="aform" class="panel" style="padding:0;border:0">
+          <label class="field" for="a-key">Experimenter password<input type="password" id="a-key" autocomplete="current-password" required></label>
+          ${this.error ? `<p class="err" role="alert">${esc(this.error)}</p>` : ""}
+          <div class="row"><button class="btn primary" type="submit">Sign in</button></div>
+        </form>
+      </section>`);
+    if (!this.data) return paint(`<section class="panel"><p class="muted">Loading data…</p>${this.error ? `<p class="err">${esc(this.error)}</p>` : ""}</section>`);
+    const C = this.compute();
+    paint(`
+      <section class="row">
+        <div><div class="eyebrow">Experimenter</div><h1>Delegation Lab</h1></div>
+        <div class="spacer"></div>
+        <span class="small muted">Updated ${new Date(this.updatedAt).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"})}</span>
+        <button type="button" class="btn" data-act="a-refresh">Refresh</button>
+        <button type="button" class="btn" data-act="a-out">Sign out</button>
+      </section>
+      ${this.error ? `<p class="err" role="alert">${esc(this.error)}</p>` : ""}
+      ${this.notice ? `<p class="ok" role="status">${esc(this.notice)}</p>` : ""}
+      <section class="grid2">${this.createPanel()}${this.settingsPanel()}</section>
+      ${this.sessionsPanel(C)}
+      ${this.resultsPanel(C)}
+      ${this.peoplePanel(C)}
+      ${this.responsesPanel(C)}
+      ${this.gradersPanel(C)}`);
+  },
+  createPanel(){
+    const f = this.form, c = this.created;
+    const link = c ? `${location.origin}${location.pathname}?s=${c.code}` : "";
+    return `
+      <div class="panel">
+        <div class="eyebrow">New session</div>
+        <h2>Create a session</h2>
+        <form id="createform" class="panel" style="padding:0;border:0;gap:12px">
+          <div class="seg" role="radiogroup" aria-label="Condition">
+            <label><input type="radio" name="c-cond" id="c-ind" value="individual" ${f.condition === "individual" ? "checked" : ""}>Individual · 10 tasks</label>
+            <label><input type="radio" name="c-cond" id="c-grp" value="group" ${f.condition === "group" ? "checked" : ""}>Group of four · 40 tasks</label>
+          </div>
+          <label class="field" for="c-label">Note for yourself (optional)<input type="text" id="c-label" maxlength="40" placeholder="e.g. Tuesday lab, table 3" value="${esc(f.label)}"></label>
+          <label class="check"><input type="checkbox" id="c-trial" ${f.trial ? "checked" : ""}> Trial run (kept out of results; easy to delete)</label>
+          <div class="row"><button class="btn primary" type="submit" ${this.busy ? "disabled" : ""}>Create session</button></div>
+        </form>
+        ${c ? `<div class="panel" style="background:var(--sunk)">
+          <div class="eyebrow">${c.condition === "group" ? "Group session" : "Individual session"} created${c.trial ? " · trial" : ""}</div>
+          <div class="bigcode">${esc(c.code)}</div>
+          <p class="small">Participants open the site and enter this code${c.condition === "group" ? " (all four members, each on their own computer)" : ""}, or use this link:</p>
+          <div class="row"><input type="text" id="c-link" readonly value="${esc(link)}" style="flex:1;min-width:200px"><button type="button" class="btn sm" data-act="copy-link">Copy link</button></div>
+        </div>` : ""}
+      </div>`;
+  },
+  settingsPanel(){
+    const s = this.settingsDraft || this.info.settings, i = this.info;
+    const modelNote = i.demo ? "Demo mode always uses prepared answers."
+      : i.liveModel ? `API key found (${esc(i.provider)}). If a call fails, the agent uses the prepared answer and the fallback is logged.`
+      : "No AI_API_KEY is set in Netlify, so the agent will use prepared answers.";
+    return `
+      <div class="panel">
+        <div class="eyebrow">Settings</div>
+        <h2>Experiment settings</h2>
+        <form id="settingsform" class="panel" style="padding:0;border:0;gap:12px">
+          <div class="field"><span>AI agent</span>
+            <div class="seg" role="radiogroup" aria-label="AI agent">
+              <label><input type="radio" name="s-mode" id="s-live" value="live" ${s.agentMode === "live" ? "checked" : ""}>Live model</label>
+              <label><input type="radio" name="s-mode" id="s-prep" value="prepared" ${s.agentMode === "prepared" ? "checked" : ""}>Prepared answers only</label>
+            </div><span class="small muted" style="font-weight:400">${modelNote}</span></div>
+          <label class="check"><input type="checkbox" id="s-planted" ${s.plantedErrors ? "checked" : ""}> Planted errors in 1 of every 4 AI outputs, and show participants the 75% statement</label>
+          <div class="row">
+            <label class="field" for="s-prev" style="flex:1;min-width:140px">Reading time (seconds)<input type="number" id="s-prev" min="0" max="600" value="${s.previewSec}"></label>
+            <label class="field" for="s-work" style="flex:1;min-width:140px">Working time (seconds)<input type="number" id="s-work" min="30" max="7200" value="${s.workSec}"></label>
+          </div>
+          <p class="small muted">Changes apply to sessions created after you save. The study design is 60 and 600 seconds.</p>
+          <div class="row"><button class="btn" type="submit" ${this.busy ? "disabled" : ""}>Save settings</button></div>
+        </form>
+      </div>`;
+  },
+  statusCell(s){
+    if (s.phase === "lobby") return `<span class="chip">Waiting · ${s.members.length}/${s.size} joined</span>`;
+    if (s.phase === "preview") return `<span class="chip warn">Reading · <span data-until="${s.workStartsAt}">${mmss(s.workStartsAt - serverNow())}</span></span>`;
+    if (s.phase === "work") return `<span class="chip agent">Working · <span data-until="${s.endsAt}">${mmss(s.endsAt - serverNow())}</span> left</span>`;
+    return `<span class="chip good">Finished</span>`;
+  },
+  sessionsPanel(C){
+    const ss = C.sessions, trials = ss.filter(s => s.trial).length, n = this.selected.size;
+    return `
+      <section class="panel">
+        <div class="row"><h2>Sessions</h2><span class="muted small">${ss.length} total${trials ? ` · ${trials} trial` : ""}</span><div class="spacer"></div>
+          <button type="button" class="btn sm danger" data-act="del-selected" ${n ? "" : "disabled"}>Delete selected${n ? ` (${n})` : ""}</button>
+          <button type="button" class="btn sm danger" data-act="del-trials" ${trials ? "" : "disabled"}>Delete all trial sessions</button>
+          <button type="button" class="btn sm danger" data-act="del-all" ${ss.length ? "" : "disabled"}>Delete all data</button>
+        </div>
+        <p class="small muted">Deleting removes the session with all its members, AI drafts, submissions and grades. It can't be undone. Payout is max(points × ₹${RS_PER_POINT}, 0); groups split it equally among their members.</p>
+        <div class="tablewrap"><table>
+          <thead><tr><th><input type="checkbox" id="sel-all" aria-label="Select all sessions" ${n && n === ss.length ? "checked" : ""}></th><th>Code</th><th>Condition</th><th>Note</th><th>Members</th><th>Status</th><th class="num">Submitted</th><th class="num">With AI</th><th class="num">Graded</th><th class="num">Points</th><th class="num">Payout / person</th><th></th></tr></thead>
+          <tbody>${ss.map(s => `<tr class="${s.trial ? "trial" : ""}">
+            <td><input type="checkbox" data-sel="${s.code}" aria-label="Select ${s.code}" ${this.selected.has(s.code) ? "checked" : ""}></td>
+            <td><b style="font-family:var(--f-mono)">${esc(s.code)}</b>${s.trial ? ` <span class="chip warn">Trial</span>` : ""}</td>
+            <td>${s.condition === "group" ? "Group" : "Individual"}</td>
+            <td class="wrapcell">${esc(s.label || "")}</td>
+            <td class="wrapcell">${s.members.map(m => esc(m.name)).join(", ") || `<span class="muted">nobody yet</span>`}</td>
+            <td>${this.statusCell(s)}</td>
+            <td class="num">${s.subCount} / ${s.taskIds.length}</td>
+            <td class="num">${s.aiCount}</td>
+            <td class="num">${s.graded} / ${s.subCount}</td>
+            <td class="num">${s.graded ? sgn(s.points) : "–"}</td>
+            <td class="num">${s.graded ? inr(s.perPerson) + (s.complete ? "" : ` <span class="chip">so far</span>`) : "–"}</td>
+            <td><div class="row" style="flex-wrap:nowrap;gap:6px">
+              ${s.phase === "lobby" ? `<button type="button" class="btn sm" data-act="start" data-code="${s.code}" ${s.members.length ? "" : "disabled"} title="Start even if not everyone has joined">Start now</button>` : ""}
+              <button type="button" class="btn sm" data-act="copy-code" data-code="${s.code}">Copy link</button>
+              <button type="button" class="btn sm" data-act="trial" data-code="${s.code}" data-trial="${s.trial ? "0" : "1"}">${s.trial ? "Mark as real" : "Mark as trial"}</button>
+              <button type="button" class="btn sm danger" data-act="del-one" data-code="${s.code}">Delete</button>
+            </div></td>
+          </tr>`).join("") || `<tr><td colspan="12" class="muted">No sessions yet. Create one above.</td></tr>`}</tbody>
+        </table></div>
+      </section>`;
+  },
+  chart(C){
+    const W = 640, H = 160, L = 100, R = 20, T = 18, rowH = 54, x = (v) => L + v * (W - L - R);
+    let g = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Share of tasks done with the AI agent, per person, by condition" style="width:100%;max-width:760px;height:auto;display:block">`;
+    [0, .25, .5, .75, 1].forEach(v => { g += `<line x1="${x(v)}" x2="${x(v)}" y1="${T - 4}" y2="${T + rowH * 2}" stroke="var(--line)"/><text x="${x(v)}" y="${T + rowH * 2 + 16}" text-anchor="middle">${v * 100}%</text>`; });
+    [["Individual", C.ind, "individual", "var(--accent)", "var(--accent-soft)"], ["Group", C.grp, "group", "var(--agent)", "var(--agent-soft)"]].forEach(([label, c, key, stroke, fill], i) => {
+      const y = T + i * rowH + rowH / 2;
+      g += `<text x="0" y="${y + 4}" style="fill:var(--fg);font-weight:600">${label}</text>`;
+      if (c.share != null) g += `<rect x="${L}" y="${y - 11}" width="${Math.max(0, x(c.share) - L)}" height="22" rx="3" fill="${fill}"/><line x1="${x(c.share)}" x2="${x(c.share)}" y1="${y - 15}" y2="${y + 15}" stroke="${stroke}" stroke-width="3"/>`;
+      C.people.filter(p => p.condition === key && p.share != null).forEach(p => {
+        let hsh = 0; for (const ch of p.code + p.memberId) hsh = (hsh * 31 + ch.charCodeAt(0)) >>> 0;
+        g += `<circle cx="${x(p.share)}" cy="${y + ((hsh % 9) - 4) * 1.6}" r="4.5" fill="var(--surface)" stroke="${stroke}" stroke-width="2"><title>${esc(p.name)}: ${pct(p.share)}</title></circle>`;
+      });
+    });
+    return g + `</svg>`;
+  },
+  resultsPanel(C){
+    const card = (c, label, cls) => `
+      <div class="panel">
+        <div class="row"><h3>${label}</h3><span class="chip ${cls}">${c.people} people · ${c.sessions} sessions</span></div>
+        <div><div class="big">${pct(c.share)}</div><div class="small muted">mean share of each person's submitted tasks done with the AI agent</div></div>
+        <dl class="kv">
+          <dt>Submitted tasks (with AI)</dt><dd>${c.subs} (${c.ai})</dd>
+          <dt>Mean edit extent on AI drafts</dt><dd>${pct(c.edit)}</dd>
+          <dt>AI drafts submitted unedited</dt><dd>${c.unedited} of ${c.ai}</dd>
+          <dt>Planted-error drafts submitted unedited</dt><dd>${c.weakUnedited} of ${c.weak}</dd>
+          <dt>AI drafts requested but not submitted</dt><dd>${c.aiOnly}</dd>
+          <dt>Mean grade: all / with AI / own work</dt><dd>${sgn(c.grade, 2)} / ${sgn(c.gradeAi, 2)} / ${sgn(c.gradeOwn, 2)}</dd>
+        </dl>
+      </div>`;
+    const diff = C.ind.share != null && C.grp.share != null ? Math.round((C.grp.share - C.ind.share) * 100) : null;
+    return `
+      <section class="panel">
+        <div class="row"><h2>Results</h2>${diff != null ? `<span class="chip ${diff > 0 ? "agent" : "own"}">Group ${diff >= 0 ? "+" : "−"}${Math.abs(diff)} percentage points vs individual</span>` : ""}<div class="spacer"></div>
+          <label class="check small"><input type="checkbox" id="incl-trial" ${this.includeTrial ? "checked" : ""}> Include trial sessions</label></div>
+        <p class="small muted lede">Hypothesis: group members do a larger share of their tasks with the AI agent than individuals. Each dot is one person; the bar shows the condition mean. Edit extent is the share of characters changed between the AI draft and the submitted text.</p>
+        ${this.chart(C)}
+      </section>
+      <section class="stats">${card(C.ind, "Individual", "own")}${card(C.grp, "Group of four", "agent")}</section>`;
+  },
+  peoplePanel(C){
+    const ps = [...C.people].sort((a, b) => a.condition.localeCompare(b.condition) || a.code.localeCompare(b.code) || a.name.localeCompare(b.name));
+    const pay = Object.fromEntries(C.sessions.map(s => [s.code, s]));
+    return `
+      <section class="panel">
+        <div class="row"><h2>People and payouts</h2><div class="spacer"></div><button type="button" class="btn sm" data-act="csv-people">Export CSV</button></div>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Person</th><th>Session</th><th>Condition</th><th class="num">Submitted</th><th class="num">With AI</th><th class="num">AI share</th><th class="num">AI requests</th><th class="num">Mean edit</th><th class="num">Unedited AI</th><th class="num">Planted errors passed</th><th class="num">Own points</th><th class="num">Payout</th></tr></thead>
+          <tbody>${ps.map(p => `<tr class="${p.trial ? "trial" : ""}"><td><b>${esc(p.name)}</b></td><td style="font-family:var(--f-mono)">${esc(p.code)}</td><td>${p.condition === "group" ? "Group" : "Individual"}</td>
+            <td class="num">${p.submitted}</td><td class="num">${p.aiUsed}</td><td class="num">${pct(p.share)}</td><td class="num">${p.aiCalls}</td><td class="num">${pct(p.editMean)}</td>
+            <td class="num">${p.unedited}</td><td class="num">${p.weakUnedited} of ${p.weakAi}</td><td class="num">${sgn(p.points)}</td>
+            <td class="num">${pay[p.code]?.graded ? inr(pay[p.code].perPerson) + (pay[p.code].complete ? "" : " (so far)") : "–"}</td></tr>`).join("") || `<tr><td colspan="12" class="muted">No participants yet.</td></tr>`}</tbody>
+        </table></div>
+        <p class="small muted">Own points are the grades of the tasks this person submitted. Payout uses the whole session's points: groups share them equally.</p>
+      </section>`;
+  },
+  responseRows(C){
+    const f = this.filter;
+    let rows = [...C.subs, ...C.unsubmittedAi];
+    if (f.code !== "all") rows = rows.filter(r => r.code === f.code);
+    if (f.condition !== "all") rows = rows.filter(r => r.condition === f.condition);
+    if (f.kind === "ai") rows = rows.filter(r => r.kind === "sub" && r.aiUsed);
+    if (f.kind === "own") rows = rows.filter(r => r.kind === "sub" && !r.aiUsed);
+    if (f.kind === "edited") rows = rows.filter(r => r.kind === "sub" && r.aiUsed && r.edited);
+    if (f.kind === "unedited") rows = rows.filter(r => r.kind === "sub" && r.aiUsed && !r.edited);
+    if (f.kind === "ai-only") rows = rows.filter(r => r.kind === "ai-only");
+    return rows.sort((a, b) => (b.submittedAt || b.respondedAt) - (a.submittedAt || a.respondedAt));
+  },
+  responsesPanel(C){
+    const f = this.filter, rows = this.responseRows(C);
+    const codes = C.sessions.filter(s => this.includeTrial || !s.trial).map(s => s.code);
+    const how = (r) => r.kind === "ai-only" ? `<span class="chip warn">AI draft, not submitted</span>`
+      : !r.aiUsed ? `<span class="chip own">Own work</span>${r.teamAiUsed ? ` <span class="chip" title="Another group member asked the AI agent for this task">team used AI</span>` : ""}`
+      : r.edited ? `<span class="chip agent">AI, edited</span>` : `<span class="chip agent">AI, unedited</span>`;
+    const grade = (r) => r.kind !== "sub" ? "" : r.grade == null ? `<span class="muted">not graded</span>` : `${esc(LABEL[Math.round(r.grade)] ?? "")} (${sgn(r.grade)}${r.ratings.length > 1 ? `, ${r.ratings.length} grades` : ""})`;
+    const body = rows.slice(0, 400).map((r) => {
+      const id = r.code + "/" + r.taskId + "/" + r.memberId + "/" + r.kind;
+      const open = this.expanded.has(id);
+      const main = `<tr class="clickable ${C.S[r.code]?.trial ? "trial" : ""}" data-expand="${esc(id)}" aria-expanded="${open}">
+        <td>${open ? "▾" : "▸"}</td>
+        <td style="font-family:var(--f-mono)">${esc(r.code)}</td><td>${r.condition === "group" ? "Group" : "Individual"}</td><td>${esc(r.name)}</td>
+        <td>${esc(r.taskId)}</td><td>${how(r)}</td>
+        <td class="num">${r.aiUsed ? `${pct(r.editRatio)} <span class="muted">+${r.wordsAdded}/−${r.wordsRemoved}</span>` : "–"}</td>
+        <td class="num">${r.aiUsed ? r.reviewSec + " s" : "–"}</td>
+        <td>${r.version === "weak" ? `<span class="chip bad">planted error</span>` : `<span class="muted">–</span>`}</td>
+        <td>${r.agentSource || r.source ? esc(r.agentSource || r.source) : "–"}</td>
+        <td class="num">${r.kind === "sub" ? mmss(r.secIntoWork * 1000) : "–"}</td>
+        <td>${grade(r)}</td></tr>`;
+      if (!open) return main;
+      const aiText = r.kind === "sub" ? r.agentText : r.text;
+      const detail = r.kind === "ai-only"
+        ? `<div class="diffgrid"><div><div class="eyebrow">AI draft (not submitted)</div><div class="diff">${esc(aiText)}</div></div></div>`
+        : r.aiUsed
+          ? `<div class="diffgrid"><div><div class="eyebrow">AI draft</div><div class="diff">${esc(aiText)}</div></div><div><div class="eyebrow">Changes made before submitting</div><div class="diff">${r.edited ? diffHtml(aiText, r.text) : esc(r.text) + `<p class="small muted" style="margin-top:6px">Submitted without changes.</p>`}</div></div></div>`
+          : `<div class="diffgrid"><div><div class="eyebrow">Submitted text (own work)</div><div class="diff">${esc(r.text)}</div></div></div>`;
+      const extra = (r.fallback ? `<p class="small muted">The live model failed (${esc(r.fallback)}), so the prepared answer was used.</p>` : "")
+        + (r.ratings?.length ? `<p class="small muted">Grades: ${r.ratings.map(x => `${esc(x.judge)}: ${LABEL[x.score]} (${sgn(x.score, 0)})`).join(" · ")}</p>` : "");
+      return main + `<tr class="diffrow"><td></td><td colspan="11">${detail}${extra}</td></tr>`;
+    }).join("");
+    return `
+      <section class="panel">
+        <div class="row"><h2>Responses</h2><span class="muted small">${rows.length} rows</span><div class="spacer"></div><button type="button" class="btn sm" data-act="csv-responses">Export CSV</button></div>
+        <div class="filters">
+          <label class="field" for="f-code">Session<select id="f-code"><option value="all">All sessions</option>${codes.map(c => `<option value="${c}" ${f.code === c ? "selected" : ""}>${c}</option>`).join("")}</select></label>
+          <label class="field" for="f-cond">Condition<select id="f-cond">${[["all","Both"],["individual","Individual"],["group","Group"]].map(([v,l]) => `<option value="${v}" ${f.condition === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+          <label class="field" for="f-kind">Show<select id="f-kind">${[["all","Everything"],["ai","Done with AI"],["edited","AI, edited"],["unedited","AI, unedited"],["own","Own work"],["ai-only","AI drafts not submitted"]].map(([v,l]) => `<option value="${v}" ${f.kind === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        </div>
+        <p class="small muted">Click a row to see the AI draft and exactly what was changed. Struck-through text was deleted from the AI draft; highlighted text was added. Review time is the gap between receiving the AI draft and submitting.</p>
+        <div class="tablewrap"><table>
+          <thead><tr><th></th><th>Session</th><th>Condition</th><th>Person</th><th>Task</th><th>How</th><th class="num">Edit extent</th><th class="num">Review time</th><th>AI version</th><th>Source</th><th class="num">Submitted at</th><th>Grade</th></tr></thead>
+          <tbody>${body || `<tr><td colspan="12" class="muted">No responses match.</td></tr>`}</tbody>
+        </table></div>
+        ${rows.length > 400 ? `<p class="small muted">Showing the latest 400 rows. Export the CSV for all of them.</p>` : ""}
+        ${this.csv ? `<label class="field" for="csvbox">CSV (select all and copy)<textarea id="csvbox" class="csvbox" readonly>${esc(this.csv)}</textarea></label>` : ""}
+      </section>`;
+  },
+  gradersPanel(C){
+    const js = Object.entries(C.judges);
+    return `
+      <section class="panel">
+        <h2>Grading progress</h2>
+        <p class="small muted">${C.totalSubs} submissions in total. Graders see only the task and the submitted text, rated as ${SCALE.map(([v,l]) => `${l} (${sgn(v,0)})`).join(", ")}.</p>
+        ${js.length ? `<div class="tablewrap"><table><thead><tr><th>Grader</th><th class="num">Graded</th></tr></thead><tbody>${js.map(([j, n]) => `<tr><td>${esc(j)}</td><td class="num">${n}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">No grades yet.</p>`}
+      </section>`;
+  },
+  csvOf(header, rows){
+    const q = (v) => { const s = String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    return [header.join(","), ...rows.map(r => r.map(q).join(","))].join("\n");
+  },
+  download(name, text){
+    if (window.DEMO_HANDLER) { this.csv = text; this.render(); const el = $("#csvbox"); if (el) { el.focus(); el.select(); } return; }
+    const url = URL.createObjectURL(new Blob(["﻿" + text], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  },
+  exportResponses(){
+    const C = this.compute();
+    const rows = [...C.subs, ...C.unsubmittedAi].map(r => [
+      r.code, C.S[r.code]?.trial ? "yes" : "no", r.condition, r.name, r.memberId, r.taskId, r.kind === "sub" ? "yes" : "no",
+      r.kind === "sub" ? (r.aiUsed ? "yes" : "no") : "yes", r.kind === "sub" && r.aiUsed ? (r.edited ? "yes" : "no") : "",
+      r.editRatio ?? "", r.editChars ?? "", r.wordsAdded ?? "", r.wordsRemoved ?? "", r.reviewSec ?? "", r.version,
+      r.agentSource || r.source || "", r.fallback || "", r.teamAiUsed ? "yes" : "", r.secIntoWork ?? "",
+      r.grade ?? "", r.ratings ? r.ratings.length : "", r.kind === "sub" ? (r.agentText || "") : r.text, r.kind === "sub" ? r.text : ""]);
+    this.download("delegation-lab-responses.csv", this.csvOf(["session","trial","condition","person","person_id","task","submitted","ai_used","edited","edit_ratio","edit_chars","words_added","words_removed","review_sec","ai_version","ai_source","ai_fallback_reason","team_ai_used","submitted_sec_into_work","mean_grade","n_grades","ai_draft","submitted_text"], rows));
+  },
+  exportPeople(){
+    const C = this.compute(), pay = Object.fromEntries(C.sessions.map(s => [s.code, s]));
+    const rows = C.people.map(p => [p.code, p.trial ? "yes" : "no", p.condition, p.name, p.submitted, p.aiUsed, p.share ?? "", p.aiCalls, p.editMean ?? "", p.unedited, p.weakAi, p.weakUnedited, p.points, pay[p.code]?.points ?? "", pay[p.code]?.pool ?? "", pay[p.code]?.perPerson ?? "", pay[p.code]?.complete ? "yes" : "no"]);
+    this.download("delegation-lab-people.csv", this.csvOf(["session","trial","condition","person","submitted","ai_used","ai_share","ai_requests","mean_edit_ratio","ai_unedited","planted_error_ai","planted_error_unedited","own_points","session_points","session_payout_inr","payout_per_person_inr","grading_complete"], rows));
+  },
+};
+
+/* ================= events ================= */
+document.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const id = e.target.id;
+  if (id === "joinform") P.join($("#j-code").value, $("#j-name").value);
+  else if (id === "gform") { G.judge = $("#g-name").value.trim(); G.key = $("#g-key").value; ls.set("dl-judge", G.judge); ls.set("dl-gkey", G.key); G.error = ""; G.next(); }
+  else if (id === "aform") { A.key = $("#a-key").value; ls.set("dl-akey", A.key); A.error = ""; clearTimers(); A.start(); }
+  else if (id === "createform") {
+    A.act("/admin/create", { condition: A.form.condition, label: A.form.label, trial: A.form.trial }, (r) => { A.created = r; A.form.label = ""; return ""; });
+  }
+  else if (id === "settingsform") {
+    const s = { agentMode: document.querySelector('input[name="s-mode"]:checked')?.value, plantedErrors: $("#s-planted").checked, previewSec: $("#s-prev").value, workSec: $("#s-work").value };
+    A.act("/admin/settings", { settings: s }, (r) => { A.info.settings = r.settings; A.settingsDraft = { ...r.settings }; return "Settings saved. They apply to new sessions."; });
+  }
+});
+document.addEventListener("input", (e) => {
+  const t = e.target;
+  if (t.id === "answer" && P.current) { P.drafts[P.current] = t.value; P.saveDrafts(); }
+  if (t.id === "c-label") A.form.label = t.value;
+  if (t.id === "j-code") { const p = t.selectionStart; t.value = t.value.toUpperCase(); try { t.setSelectionRange(p, p); } catch(err){} }
+  if (A.settingsDraft) {
+    if (t.id === "s-prev") A.settingsDraft.previewSec = t.value;
+    if (t.id === "s-work") A.settingsDraft.workSec = t.value;
+  }
+});
+document.addEventListener("change", (e) => {
+  const t = e.target;
+  if (t.name === "c-cond") A.form.condition = t.value;
+  if (t.id === "c-trial") A.form.trial = t.checked;
+  if (t.name === "s-mode" && A.settingsDraft) A.settingsDraft.agentMode = t.value;
+  if (t.id === "s-planted" && A.settingsDraft) A.settingsDraft.plantedErrors = t.checked;
+  if (t.id === "incl-trial") { A.includeTrial = t.checked; ls.set("dl-incl-trial", t.checked); A.render(); }
+  if (t.dataset.sel) { t.checked ? A.selected.add(t.dataset.sel) : A.selected.delete(t.dataset.sel); A.render(); }
+  if (t.id === "sel-all") { if (t.checked) A.data.sessions.forEach(s => A.selected.add(s.code)); else A.selected.clear(); A.render(); }
+  if (t.id === "f-code") { A.filter.code = t.value; A.render(); }
+  if (t.id === "f-cond") { A.filter.condition = t.value; A.render(); }
+  if (t.id === "f-kind") { A.filter.kind = t.value; A.render(); }
+});
+async function copyText(btn, text, inputId){
+  try { await navigator.clipboard.writeText(text); const o = btn.textContent; btn.textContent = "Copied"; setTimeout(() => { if (btn.isConnected) btn.textContent = o; }, 1500); }
+  catch (err) { const el = inputId && document.getElementById(inputId); if (el) { el.focus(); el.select(); } btn.textContent = "Press Ctrl+C to copy"; }
+}
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("button, [data-expand]");
+  if (!t) return;
+  if (t.dataset.open) { P.current = t.dataset.open; P.error = ""; P.render(); const a = $("#answer"); if (a && !a.disabled && window.innerWidth > 780) a.focus({preventScroll:true}); return; }
+  if (t.dataset.rate !== undefined) { G.rate(+t.dataset.rate); return; }
+  if (t.dataset.expand) { const id = t.dataset.expand; A.expanded.has(id) ? A.expanded.delete(id) : A.expanded.add(id); A.render(); return; }
+  const act = t.dataset.act; if (!act) return;
+  switch (act) {
+    case "begin": P.begin(); break;
+    case "leave": P.leave(""); break;
+    case "agent": P.askAgent(t.dataset.id); break;
+    case "submit": P.submit(t.dataset.id); break;
+    case "g-refresh": G.next(); break;
+    case "g-out": G.key = null; G.item = null; ls.del("dl-gkey"); G.render(); break;
+    case "a-refresh": A.notice = ""; A.load(); break;
+    case "a-out": A.key = null; A.info = null; A.data = null; ls.del("dl-akey"); clearTimers(); A.render(); break;
+    case "copy-link": copyText(t, $("#c-link").value, "c-link"); break;
+    case "copy-code": { const link = `${location.origin}${location.pathname}?s=${t.dataset.code}`; copyText(t, link, null); break; }
+    case "start": A.act("/admin/start", { code: t.dataset.code }, `Session ${t.dataset.code} started.`); break;
+    case "trial": A.act("/admin/trial", { code: t.dataset.code, trial: t.dataset.trial === "1" }, ""); break;
+    case "del-one": confirmClick(t, "one-" + t.dataset.code, "Click again to delete", () => A.act("/admin/delete", { codes: [t.dataset.code] }, `Deleted session ${t.dataset.code}.`)); break;
+    case "del-selected": confirmClick(t, "sel", `Click again to delete ${A.selected.size}`, () => { const codes = [...A.selected]; A.selected.clear(); A.act("/admin/delete", { codes }, `Deleted ${codes.length} session${codes.length === 1 ? "" : "s"}.`); }); break;
+    case "del-trials": confirmClick(t, "trials", "Click again to delete trials", () => { const codes = A.data.sessions.filter(s => s.trial).map(s => s.code); A.act("/admin/delete", { codes }, `Deleted ${codes.length} trial session${codes.length === 1 ? "" : "s"}.`); }); break;
+    case "del-all": confirmClick(t, "all", "Click again to delete everything", () => { A.selected.clear(); A.created = null; A.act("/admin/delete", { all: true }, "All sessions and data were deleted. Settings were kept."); }); break;
+    case "csv-responses": A.exportResponses(); break;
+    case "csv-people": A.exportPeople(); break;
+  }
+});
+
+function boot(){
+  $("#demobar").hidden = !window.DEMO_HANDLER;
+  $("#foot").hidden = !!window.DEMO_HANDLER;
+  const v = view();
+  render();
+  if (v === "participant") P.start();
+  else if (v === "grade") G.start();
+  else A.start();
+}
+boot();
+</script>
+</body>
+</html>
