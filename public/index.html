@@ -258,7 +258,7 @@ const P = {
   schedulePoll(){
     clearTimeout(this.pollT);
     const st = this.state; if (!st || view() !== "participant") return;
-    if (st.phase === "finished" && serverNow() > st.endsAt + 8000) return;
+    if (st.me?.finished || (st.phase === "finished" && serverNow() > st.endsAt + 8000)) return;
     this.pollT = setTimeout(() => this.poll(false), st.size > 1 || st.phase === "lobby" ? 2000 : 5000);
   },
   async poll(full){
@@ -282,8 +282,19 @@ const P = {
     }
     this.state = st;
     if (st.tasks && (!this.current || !st.tasks.some(t => t.id === this.current))) this.current = (st.tasks.find(t => !st.status[t.id]?.by) || st.tasks[0]).id;
-    const sig = JSON.stringify([st.phase, st.members.map(m=>m.memberId), st.status, !!st.tasks]);
+    const sig = JSON.stringify([st.phase, st.members.map(m=>m.memberId), st.status, !!st.tasks, st.me.finished, st.allSubmitted]);
     if (sig !== this.sig) { this.sig = sig; this.error = this.error && !/server|connection/i.test(this.error) ? this.error : ""; this.render(); }
+  },
+  done(){
+    const st = this.state;
+    return !!st && st.phase !== "lobby" && (st.me.finished || st.allSubmitted || this.phase() === "finished");
+  },
+  async finish(){
+    try {
+      const r = await api("POST", "/finish", this.creds);
+      this.state.me.finished = true; this.state.me.finish = r.finish;
+      clearTimeout(this.pollT); this.render();
+    } catch (e) { this.error = e.message; this.render(); }
   },
   phase(){
     const st = this.state; if (!st || st.phase === "lobby") return st ? "lobby" : null;
@@ -291,7 +302,7 @@ const P = {
     return t < st.workStartsAt ? "preview" : t < st.endsAt ? "work" : "finished";
   },
   tick(){
-    const st = this.state; if (!st || st.phase === "lobby") return;
+    const st = this.state; if (!st || st.phase === "lobby" || st.me.finished || st.allSubmitted) return;
     const ph = this.phase();
     if (ph !== st.phase) { st.phase = ph; this.render(); this.poll(true); return; }
     const el = $("#timer");
@@ -340,7 +351,7 @@ const P = {
       this.submitted[id] = text;
       const st = this.state; (st.status[id] ||= {}).by = this.creds.name; st.status[id].mine = true;
       const next = st.tasks.find(t => !st.status[t.id]?.by);
-      if (next) this.current = next.id;
+      if (next) this.current = next.id; else st.allSubmitted = true;
     } catch (e) { this.error = e.message; }
     delete this.pendingSubmit[id]; this.render(); this.poll(false);
   },
@@ -351,7 +362,7 @@ const P = {
     if (!this.state) return paint(`<section class="panel narrow"><p class="muted">Loading your session…</p>${this.error ? `<p class="err">${esc(this.error)}</p>` : ""}</section>`);
     const ph = this.phase();
     if (ph === "lobby") return paint(this.lobbyView());
-    if (ph === "finished") return paint(this.doneView());
+    if (this.done()) return paint(this.doneView());
     paint(this.workView(ph));
   },
   joinView(){
@@ -456,6 +467,7 @@ const P = {
       <div class="small"><b>${doneCount} of ${st.tasks.length}</b> tasks submitted${group ? ` by your group · ${mineCount} by you` : ""}</div>
       <div class="spacer"></div>
       <div class="small muted">${group ? "Group" : "Individual"} · ${esc(st.code)} · <b>${esc(st.me.name)}</b></div>
+      <button type="button" class="btn sm" data-act="finish" title="End your session now. You can't do more tasks afterwards.">I'm done</button>
     </div>
     <div class="work">
       <nav class="tasklist" aria-label="Tasks">
@@ -476,13 +488,18 @@ const P = {
     const tasks = st.tasks || [];
     const mine = tasks.filter(t => st.status[t.id]?.mine);
     const team = tasks.filter(t => st.status[t.id]?.by);
+    const timeUp = this.phase() === "finished";
+    const title = st.allSubmitted ? "All tasks submitted" : st.me.finished && !timeUp ? "You've finished" : "Time's up";
+    const left = st.me.finish && !timeUp ? `<p class="muted">You finished with ${mmss(st.me.finish.secLeft * 1000)} left on the clock.</p>` : "";
     return `
     <section class="panel narrow">
       <div class="eyebrow">${group ? "Group session" : "Individual session"} · ${esc(st.code)}</div>
-      <h1>Time's up</h1>
-      <p>Thank you${group ? "" : ", " + esc(st.me.name)}. ${group ? `Your group submitted <b>${team.length} of ${tasks.length}</b> tasks, ${mine.length} of them by you.` : `You submitted <b>${mine.length} of ${tasks.length}</b> tasks.`}</p>
+      <h1>${title}</h1>
+      <p>Thank you${group ? "" : ", " + esc(st.me.name)}. ${group ? `Your group has submitted <b>${team.length} of ${tasks.length}</b> tasks, ${mine.length} of them by you.` : `You submitted <b>${mine.length} of ${tasks.length}</b> tasks.`}</p>
+      ${left}
+      ${group && st.me.finished && !timeUp && !st.allSubmitted ? `<p class="muted">Your teammates can keep working until the clock runs out.</p>` : ""}
       <p class="muted">Independent graders will now rate the submissions. Your payment is worked out once grading is complete${group ? " and is split equally across the group" : ""}.</p>
-      <div class="row"><button type="button" class="btn" data-act="leave">Finish and sign out</button></div>
+      <div class="row"><button type="button" class="btn" data-act="leave">Sign out</button></div>
     </section>`;
   },
 };
@@ -592,6 +609,8 @@ const A = {
     const subKey = new Set(d.subs.map(s => s.code + "/" + s.taskId + "/" + s.memberId));
     const unsubmittedAi = d.agents.filter(a => inc(S[a.code]) && !subKey.has(a.code + "/" + a.taskId + "/" + a.memberId))
       .map(a => ({ ...a, name: memberName[a.code + "/" + a.memberId] || a.memberId, condition: S[a.code].condition, kind: "ai-only" }));
+    const finOf = {};
+    (d.finishes || []).forEach(f => { finOf[f.code + "/" + f.memberId] = f; });
     const people = d.members.filter(m => inc(S[m.code])).map(m => {
       const mine = subs.filter(s => s.code === m.code && s.memberId === m.memberId);
       const ai = mine.filter(s => s.aiUsed);
@@ -603,6 +622,7 @@ const A = {
         editMean: ai.length ? mean(ai.map(s => s.editRatio)) : null, unedited: ai.filter(s => !s.edited).length,
         weakAi: weakAi.length, weakUnedited: weakAi.filter(s => !s.edited).length,
         points: mine.reduce((x, s) => x + (s.grade ?? 0), 0),
+        finish: finOf[m.code + "/" + m.memberId] || null,
       };
     });
     const sessions = d.sessions.map(s => {
@@ -610,8 +630,10 @@ const A = {
       const graded = ss.filter(x => x.rs.length);
       const points = graded.reduce((acc, x) => acc + mean(x.rs.map(r => r.score)), 0);
       const mem = d.members.filter(m => m.code === s.code);
+      const fins = (d.finishes || []).filter(f => f.code === s.code);
+      const closedEarly = (s.phase === "preview" || s.phase === "work") && (ss.length >= s.taskIds.length || (mem.length > 0 && fins.length >= mem.length));
       const pool = Math.max(points * RS_PER_POINT, 0);
-      return { ...s, members: mem, subCount: ss.length, aiCount: ss.filter(x => x.aiUsed).length, graded: graded.length, points,
+      return { ...s, members: mem, closedEarly, finishedCount: fins.length, subCount: ss.length, aiCount: ss.filter(x => x.aiUsed).length, graded: graded.length, points,
         pool, perPerson: mem.length ? pool / (s.condition === "group" ? mem.length : 1) : 0, complete: ss.length > 0 && graded.length === ss.length };
     }).sort((a, b) => b.createdAt - a.createdAt);
     const cond = (c) => {
@@ -715,9 +737,10 @@ const A = {
       </div>`;
   },
   statusCell(s){
+    if (s.closedEarly) return `<span class="chip good">Finished early</span>`;
     if (s.phase === "lobby") return `<span class="chip">Waiting · ${s.members.length}/${s.size} joined</span>`;
     if (s.phase === "preview") return `<span class="chip warn">Reading · <span data-until="${s.workStartsAt}">${mmss(s.workStartsAt - serverNow())}</span></span>`;
-    if (s.phase === "work") return `<span class="chip agent">Working · <span data-until="${s.endsAt}">${mmss(s.endsAt - serverNow())}</span> left</span>`;
+    if (s.phase === "work") return `<span class="chip agent">Working · <span data-until="${s.endsAt}">${mmss(s.endsAt - serverNow())}</span> left</span>${s.size > 1 && s.finishedCount ? ` <span class="chip">${s.finishedCount} done</span>` : ""}`;
     return `<span class="chip good">Finished</span>`;
   },
   sessionsPanel(C){
@@ -800,11 +823,12 @@ const A = {
       <section class="panel">
         <div class="row"><h2>People and payouts</h2><div class="spacer"></div><button type="button" class="btn sm" data-act="csv-people">Export CSV</button></div>
         <div class="tablewrap"><table>
-          <thead><tr><th>Person</th><th>Session</th><th>Condition</th><th class="num">Submitted</th><th class="num">With AI</th><th class="num">AI share</th><th class="num">AI requests</th><th class="num">Mean edit</th><th class="num">Unedited AI</th><th class="num">Planted errors passed</th><th class="num">Own points</th><th class="num">Payout</th></tr></thead>
+          <thead><tr><th>Person</th><th>Session</th><th>Condition</th><th class="num">Submitted</th><th class="num">With AI</th><th class="num">AI share</th><th class="num">AI requests</th><th class="num">Mean edit</th><th class="num">Unedited AI</th><th class="num">Planted errors passed</th><th>Finished</th><th class="num">Own points</th><th class="num">Payout</th></tr></thead>
           <tbody>${ps.map(p => `<tr class="${p.trial ? "trial" : ""}"><td><b>${esc(p.name)}</b></td><td style="font-family:var(--f-mono)">${esc(p.code)}</td><td>${p.condition === "group" ? "Group" : "Individual"}</td>
             <td class="num">${p.submitted}</td><td class="num">${p.aiUsed}</td><td class="num">${pct(p.share)}</td><td class="num">${p.aiCalls}</td><td class="num">${pct(p.editMean)}</td>
-            <td class="num">${p.unedited}</td><td class="num">${p.weakUnedited} of ${p.weakAi}</td><td class="num">${sgn(p.points)}</td>
-            <td class="num">${pay[p.code]?.graded ? inr(pay[p.code].perPerson) + (pay[p.code].complete ? "" : " (so far)") : "–"}</td></tr>`).join("") || `<tr><td colspan="12" class="muted">No participants yet.</td></tr>`}</tbody>
+            <td class="num">${p.unedited}</td><td class="num">${p.weakUnedited} of ${p.weakAi}</td>
+            <td>${p.finish ? `Early · ${mmss(p.finish.secLeft * 1000)} left` : `<span class="muted">${A.data.sessions.find(x => x.code === p.code)?.phase === "finished" ? "At time" : "–"}</span>`}</td><td class="num">${sgn(p.points)}</td>
+            <td class="num">${pay[p.code]?.graded ? inr(pay[p.code].perPerson) + (pay[p.code].complete ? "" : " (so far)") : "–"}</td></tr>`).join("") || `<tr><td colspan="13" class="muted">No participants yet.</td></tr>`}</tbody>
         </table></div>
         <p class="small muted">Own points are the grades of the tasks this person submitted. Payout uses the whole session's points: groups share them equally.</p>
       </section>`;
@@ -900,8 +924,8 @@ const A = {
   },
   exportPeople(){
     const C = this.compute(), pay = Object.fromEntries(C.sessions.map(s => [s.code, s]));
-    const rows = C.people.map(p => [p.code, p.trial ? "yes" : "no", p.condition, p.name, p.submitted, p.aiUsed, p.share ?? "", p.aiCalls, p.editMean ?? "", p.unedited, p.weakAi, p.weakUnedited, p.points, pay[p.code]?.points ?? "", pay[p.code]?.pool ?? "", pay[p.code]?.perPerson ?? "", pay[p.code]?.complete ? "yes" : "no"]);
-    this.download("delegation-lab-people.csv", this.csvOf(["session","trial","condition","person","submitted","ai_used","ai_share","ai_requests","mean_edit_ratio","ai_unedited","planted_error_ai","planted_error_unedited","own_points","session_points","session_payout_inr","payout_per_person_inr","grading_complete"], rows));
+    const rows = C.people.map(p => [p.code, p.trial ? "yes" : "no", p.condition, p.name, p.submitted, p.aiUsed, p.share ?? "", p.aiCalls, p.editMean ?? "", p.unedited, p.weakAi, p.weakUnedited, p.finish ? "yes" : "no", p.finish ? p.finish.secLeft : "", p.points, pay[p.code]?.points ?? "", pay[p.code]?.pool ?? "", pay[p.code]?.perPerson ?? "", pay[p.code]?.complete ? "yes" : "no"]);
+    this.download("delegation-lab-people.csv", this.csvOf(["session","trial","condition","person","submitted","ai_used","ai_share","ai_requests","mean_edit_ratio","ai_unedited","planted_error_ai","planted_error_unedited","finished_early","sec_left_at_finish","own_points","session_points","session_payout_inr","payout_per_person_inr","grading_complete"], rows));
   },
 };
 
@@ -957,6 +981,7 @@ document.addEventListener("click", (e) => {
   switch (act) {
     case "begin": P.begin(); break;
     case "leave": P.leave(""); break;
+    case "finish": confirmClick(t, "finish", "Click again to finish. You can't do more tasks", () => P.finish()); break;
     case "agent": P.askAgent(t.dataset.id); break;
     case "submit": P.submit(t.dataset.id); break;
     case "g-refresh": G.next(); break;

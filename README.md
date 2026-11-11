@@ -44,7 +44,8 @@ Data is stored in Netlify Blobs, which needs no setup.
 3. Participants open the link, or the site, and enter the code and their name. Group members join from their own computers.
 4. **Starting.** An individual presses *Start*. In a group, any member can press *Start* once all four have joined. You can also press *Start now* in the sessions table, for example if a member doesn't show up.
 5. The 1-minute reading time begins. Participants can read every task but can't write or use the AI. Then the 10-minute working time runs. Only submitted tasks count.
-6. Graders open `your-site.netlify.app/#grade` and grade submissions from finished sessions.
+6. **Finishing.** A participant who is done presses *I'm done* (it asks for a second click to confirm). They can't do more tasks after that and can sign out. When every task is submitted, or every group member has pressed *I'm done*, the session ends early. Teammates keep working until then. The time each person had left is recorded.
+7. Graders open `your-site.netlify.app/#grade` and grade submissions from finished sessions.
 
 ## What the experimenter sees
 

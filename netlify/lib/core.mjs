@@ -209,11 +209,22 @@ export function createHandler({ store, env = {}, now = () => Date.now(), fetchIm
     const all = [
       `session/${code}`, `start/${code}`,
       ...(await keys(`member/${code}/`)), ...(await keys(`slot/${code}/`)), ...(await keys(`agent/${code}/`)),
-      ...subKeys, ...(await keys(`done/${code}/`)), ...(await keys(`rating/${code}/`)),
+      ...subKeys, ...(await keys(`done/${code}/`)), ...(await keys(`rating/${code}/`)), ...(await keys(`finish/${code}/`)),
       ...subs.filter(Boolean).map((s) => `ref/${s.id}`),
     ];
     await pmap(all, (k) => store.delete(k));
     return all.length;
+  }
+
+  // A session is closed when time is up, every task is submitted, or every member has pressed Finish.
+  async function isClosed(code, session, start) {
+    if (!start) return false;
+    if (now() > timing(session, start).endsAt + GRACE_MS) return true;
+    const [done, fin, mem] = await Promise.all([keys(`done/${code}/`), keys(`finish/${code}/`), keys(`member/${code}/`)]);
+    return done.length >= session.taskIds.length || (mem.length > 0 && fin.length >= mem.length);
+  }
+  async function refuseIfFinished(code, me) {
+    if (await getJ(`finish/${code}/${me.memberId}`)) fail(409, "You've already finished this session, so you can't do more tasks.");
   }
 
   async function runAgent(task, version, session) {
@@ -260,9 +271,10 @@ export function createHandler({ store, env = {}, now = () => Date.now(), fetchIm
 
     "GET /state": async (_, q) => {
       const { code, session, me } = await asMember(q);
-      const [mem, start, agentKeys, doneKeys] = await Promise.all([
-        members(code), getJ(`start/${code}`), keys(`agent/${code}/`), keys(`done/${code}/`),
+      const [mem, start, agentKeys, doneKeys, finKeys] = await Promise.all([
+        members(code), getJ(`start/${code}`), keys(`agent/${code}/`), keys(`done/${code}/`), keys(`finish/${code}/`),
       ]);
+      const finishedIds = finKeys.map((k) => k.split("/")[2]);
       const tm = timing(session, start);
       const nameOf = (id) => mem.find((m) => m.memberId === id)?.name || id;
       const status = {};
@@ -272,8 +284,10 @@ export function createHandler({ store, env = {}, now = () => Date.now(), fetchIm
         now: now(), code, condition: session.condition, size: session.size,
         plantedErrors: session.settings.plantedErrors, previewSec: session.settings.previewSec, workSec: session.settings.workSec,
         tasksPerPerson: INDIVIDUAL_TASKS, totalTasks: session.taskIds.length,
-        me: { memberId: me.memberId, name: me.name }, members: mem, ...tm, status,
+        me: { memberId: me.memberId, name: me.name, finished: finishedIds.includes(me.memberId) }, members: mem, ...tm, status,
+        finished: finishedIds.map(nameOf), allSubmitted: doneKeys.length >= session.taskIds.length,
       };
+      if (out.me.finished) out.me.finish = await getJ(`finish/${code}/${me.memberId}`);
       if (tm.phase !== "lobby") out.tasks = session.taskIds.map((id) => publicTask(TASK[id], session.condition));
       if (q.full === "1" && tm.phase !== "lobby") {
         const mineAgent = agentKeys.filter((k) => k.endsWith(`/${me.memberId}`));
@@ -295,8 +309,18 @@ export function createHandler({ store, env = {}, now = () => Date.now(), fetchIm
       return { ok: true };
     },
 
+    "POST /finish": async (b) => {
+      const { code, session, me } = await asMember(b);
+      const tm = timing(session, await getJ(`start/${code}`));
+      if (tm.phase === "lobby") fail(409, "The session hasn't started yet.");
+      const t = now();
+      await put(`finish/${code}/${me.memberId}`, { at: t, secLeft: Math.max(0, Math.round((tm.endsAt - t) / 1000)) }, { onlyIfNew: true });
+      return { ok: true, finish: await getJ(`finish/${code}/${me.memberId}`) };
+    },
+
     "POST /agent": async (b) => {
       const { code, session, me } = await asMember(b);
+      await refuseIfFinished(code, me);
       const tm = timing(session, await getJ(`start/${code}`));
       if (tm.phase === "lobby" || tm.phase === "preview") fail(409, "The AI agent opens when the reading minute ends.");
       if (now() > tm.endsAt + GRACE_MS) fail(409, "Time is up.");
@@ -316,6 +340,7 @@ export function createHandler({ store, env = {}, now = () => Date.now(), fetchIm
 
     "POST /submit": async (b) => {
       const { code, session, me } = await asMember(b);
+      await refuseIfFinished(code, me);
       const tm = timing(session, await getJ(`start/${code}`));
       if (tm.phase === "lobby" || tm.phase === "preview") fail(409, "Answers open when the reading minute ends.");
       if (now() > tm.endsAt + GRACE_MS) fail(409, "Time is up, so this answer wasn't counted.");
@@ -337,6 +362,11 @@ export function createHandler({ store, env = {}, now = () => Date.now(), fetchIm
         fail(409, "Another member of your group has already submitted this task.");
       }
       await Promise.all([put(`done/${code}/${taskId}/${me.memberId}`, { at: t }), put(`ref/${rec.id}`, { code, taskId })]);
+      if ((await keys(`done/${code}/`)).length >= session.taskIds.length) {
+        // Every task is submitted: record the finish (and time left) for everyone in the session
+        const fin = { at: t, secLeft: Math.max(0, Math.round((tm.endsAt - t) / 1000)), reason: "all tasks submitted" };
+        await pmap(await keys(`member/${code}/`), (k) => put(`finish/${code}/${k.split("/")[2]}`, fin, { onlyIfNew: true }));
+      }
       return { ok: true, submittedAt: t };
     },
 
@@ -350,7 +380,7 @@ export function createHandler({ store, env = {}, now = () => Date.now(), fetchIm
       await pmap(sessionKeys, async (k) => {
         const code = k.split("/")[1];
         const [session, start] = await Promise.all([getJ(k), getJ(`start/${code}`)]);
-        if (session && start && now() > timing(session, start).endsAt + GRACE_MS) finished.add(code);
+        if (session && (await isClosed(code, session, start))) finished.add(code);
       });
       const subKeys = (await keys("sub/")).filter((k) => finished.has(k.split("/")[1]));
       const rated = new Set((await keys("rating/")).filter((k) => k.split("/")[3] === judge).map((k) => k.split("/").slice(1, 3).join("/")));
@@ -441,10 +471,10 @@ export function createHandler({ store, env = {}, now = () => Date.now(), fetchIm
 
     "POST /admin/data": async (b, q, req) => {
       requirePassword(req, b, "EXPERIMENTER_PASSWORD", "admin", "experimenter");
-      const [sessionKeys, memberKeys, agentKeys, subKeys, ratingKeys] = await Promise.all(
-        ["session/", "member/", "agent/", "sub/", "rating/"].map(keys));
-      const [sessions, mem, agents, subs, ratings] = await Promise.all(
-        [sessionKeys, memberKeys, agentKeys, subKeys, ratingKeys].map((ks) => pmap(ks, getJ)));
+      const [sessionKeys, memberKeys, agentKeys, subKeys, ratingKeys, finishKeys] = await Promise.all(
+        ["session/", "member/", "agent/", "sub/", "rating/", "finish/"].map(keys));
+      const [sessions, mem, agents, subs, ratings, fins] = await Promise.all(
+        [sessionKeys, memberKeys, agentKeys, subKeys, ratingKeys, finishKeys].map((ks) => pmap(ks, getJ)));
       const starts = await pmap(sessionKeys, (k) => getJ(`start/${k.split("/")[1]}`));
       return {
         now: now(), demo, settings: await getSettings(),
@@ -453,6 +483,7 @@ export function createHandler({ store, env = {}, now = () => Date.now(), fetchIm
         agents: agents.filter(Boolean),
         subs: subs.filter(Boolean),
         ratings: ratings.filter(Boolean),
+        finishes: fins.map((f, i) => f && { code: finishKeys[i].split("/")[1], memberId: finishKeys[i].split("/")[2], ...f }).filter(Boolean),
       };
     },
   };
