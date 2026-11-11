@@ -619,7 +619,7 @@ const A = {
         code: m.code, memberId: m.memberId, name: m.name, condition: S[m.code].condition, trial: S[m.code].trial,
         submitted: mine.length, aiUsed: ai.length, share: mine.length ? ai.length / mine.length : null,
         aiCalls: d.agents.filter(a => a.code === m.code && a.memberId === m.memberId).length,
-        editMean: ai.length ? mean(ai.map(s => s.editRatio)) : null, unedited: ai.filter(s => !s.edited).length,
+        editMean: ai.length ? mean(ai.map(s => s.editRatio)) : null, charsMean: ai.length ? mean(ai.map(s => s.editChars || 0)) : null, unedited: ai.filter(s => !s.edited).length,
         weakAi: weakAi.length, weakUnedited: weakAi.filter(s => !s.edited).length,
         points: mine.reduce((x, s) => x + (s.grade ?? 0), 0),
         finish: finOf[m.code + "/" + m.memberId] || null,
@@ -643,7 +643,7 @@ const A = {
       const gr = cs.filter(s => s.grade != null);
       return { c, people: ps.length, sessions: new Set(ps.map(p => p.code)).size,
         share: mean(ps.map(p => p.share)), subs: cs.length, ai: ai.length,
-        edit: ai.length ? mean(ai.map(s => s.editRatio)) : null, unedited: ai.filter(s => !s.edited).length,
+        edit: ai.length ? mean(ai.map(s => s.editRatio)) : null, chars: ai.length ? mean(ai.map(s => s.editChars || 0)) : null, unedited: ai.filter(s => !s.edited).length,
         weak: weak.length, weakUnedited: weak.filter(s => !s.edited).length,
         grade: gr.length ? mean(gr.map(s => s.grade)) : null,
         gradeAi: ai.filter(s => s.grade != null).length ? mean(ai.filter(s => s.grade != null).map(s => s.grade)) : null,
@@ -799,7 +799,7 @@ const A = {
         <div><div class="big">${pct(c.share)}</div><div class="small muted">mean share of each person's submitted tasks done with the AI agent</div></div>
         <dl class="kv">
           <dt>Submitted tasks (with AI)</dt><dd>${c.subs} (${c.ai})</dd>
-          <dt>Mean edit extent on AI drafts</dt><dd>${pct(c.edit)}</dd>
+          <dt>Mean edit extent on AI drafts</dt><dd>${c.chars == null ? "–" : Math.round(c.chars) + " characters"} · ${pct(c.edit)}</dd>
           <dt>AI drafts submitted unedited</dt><dd>${c.unedited} of ${c.ai}</dd>
           <dt>Planted-error drafts submitted unedited</dt><dd>${c.weakUnedited} of ${c.weak}</dd>
           <dt>AI drafts requested but not submitted</dt><dd>${c.aiOnly}</dd>
@@ -811,7 +811,7 @@ const A = {
       <section class="panel">
         <div class="row"><h2>Results</h2>${diff != null ? `<span class="chip ${diff > 0 ? "agent" : "own"}">Group ${diff >= 0 ? "+" : "−"}${Math.abs(diff)} percentage points vs individual</span>` : ""}<div class="spacer"></div>
           <label class="check small"><input type="checkbox" id="incl-trial" ${this.includeTrial ? "checked" : ""}> Include trial sessions</label></div>
-        <p class="small muted lede">Hypothesis: group members do a larger share of their tasks with the AI agent than individuals. Each dot is one person; the bar shows the condition mean. Edit extent is the share of characters changed between the AI draft and the submitted text.</p>
+        <p class="small muted lede">Hypothesis: group members do a larger share of their tasks with the AI agent than individuals. Each dot is one person; the bar shows the condition mean. Edit extent is the number of characters changed between the AI draft and the submitted text (each character added, deleted or replaced counts as one), also shown as a percentage of the longer text.</p>
         ${this.chart(C)}
       </section>
       <section class="stats">${card(C.ind, "Individual", "own")}${card(C.grp, "Group of four", "agent")}</section>`;
@@ -823,12 +823,12 @@ const A = {
       <section class="panel">
         <div class="row"><h2>People and payouts</h2><div class="spacer"></div><button type="button" class="btn sm" data-act="csv-people">Export CSV</button></div>
         <div class="tablewrap"><table>
-          <thead><tr><th>Person</th><th>Session</th><th>Condition</th><th class="num">Submitted</th><th class="num">With AI</th><th class="num">AI share</th><th class="num">AI requests</th><th class="num">Mean edit</th><th class="num">Unedited AI</th><th class="num">Planted errors passed</th><th>Finished</th><th class="num">Own points</th><th class="num">Payout</th></tr></thead>
+          <thead><tr><th>Person</th><th>Session</th><th>Condition</th><th class="num">Submitted</th><th class="num">With AI</th><th class="num">AI share</th><th class="num">AI requests</th><th class="num">Mean chars changed</th><th class="num">Mean edit %</th><th class="num">Unedited AI</th><th class="num">Planted errors passed</th><th>Finished</th><th class="num">Own points</th><th class="num">Payout</th></tr></thead>
           <tbody>${ps.map(p => `<tr class="${p.trial ? "trial" : ""}"><td><b>${esc(p.name)}</b></td><td style="font-family:var(--f-mono)">${esc(p.code)}</td><td>${p.condition === "group" ? "Group" : "Individual"}</td>
-            <td class="num">${p.submitted}</td><td class="num">${p.aiUsed}</td><td class="num">${pct(p.share)}</td><td class="num">${p.aiCalls}</td><td class="num">${pct(p.editMean)}</td>
+            <td class="num">${p.submitted}</td><td class="num">${p.aiUsed}</td><td class="num">${pct(p.share)}</td><td class="num">${p.aiCalls}</td><td class="num">${p.charsMean == null ? "–" : Math.round(p.charsMean)}</td><td class="num">${pct(p.editMean)}</td>
             <td class="num">${p.unedited}</td><td class="num">${p.weakUnedited} of ${p.weakAi}</td>
             <td>${p.finish ? `Early · ${mmss(p.finish.secLeft * 1000)} left` : `<span class="muted">${A.data.sessions.find(x => x.code === p.code)?.phase === "finished" ? "At time" : "–"}</span>`}</td><td class="num">${sgn(p.points)}</td>
-            <td class="num">${pay[p.code]?.graded ? inr(pay[p.code].perPerson) + (pay[p.code].complete ? "" : " (so far)") : "–"}</td></tr>`).join("") || `<tr><td colspan="13" class="muted">No participants yet.</td></tr>`}</tbody>
+            <td class="num">${pay[p.code]?.graded ? inr(pay[p.code].perPerson) + (pay[p.code].complete ? "" : " (so far)") : "–"}</td></tr>`).join("") || `<tr><td colspan="14" class="muted">No participants yet.</td></tr>`}</tbody>
         </table></div>
         <p class="small muted">Own points are the grades of the tasks this person submitted. Payout uses the whole session's points: groups share them equally.</p>
       </section>`;
@@ -859,7 +859,7 @@ const A = {
         <td>${open ? "▾" : "▸"}</td>
         <td style="font-family:var(--f-mono)">${esc(r.code)}</td><td>${r.condition === "group" ? "Group" : "Individual"}</td><td>${esc(r.name)}</td>
         <td>${esc(r.taskId)}</td><td>${how(r)}</td>
-        <td class="num">${r.aiUsed ? `${pct(r.editRatio)} <span class="muted">+${r.wordsAdded}/−${r.wordsRemoved}</span>` : "–"}</td>
+        <td class="num">${r.aiUsed ? r.editChars : "–"}</td><td class="num">${r.aiUsed ? pct(r.editRatio) : "–"}</td><td class="num">${r.aiUsed ? `+${r.wordsAdded} / −${r.wordsRemoved}` : "–"}</td>
         <td class="num">${r.aiUsed ? r.reviewSec + " s" : "–"}</td>
         <td>${r.version === "weak" ? `<span class="chip bad">planted error</span>` : `<span class="muted">–</span>`}</td>
         <td>${r.agentSource || r.source ? esc(r.agentSource || r.source) : "–"}</td>
@@ -874,7 +874,7 @@ const A = {
           : `<div class="diffgrid"><div><div class="eyebrow">Submitted text (own work)</div><div class="diff">${esc(r.text)}</div></div></div>`;
       const extra = (r.fallback ? `<p class="small muted">The live model failed (${esc(r.fallback)}), so the prepared answer was used.</p>` : "")
         + (r.ratings?.length ? `<p class="small muted">Grades: ${r.ratings.map(x => `${esc(x.judge)}: ${LABEL[x.score]} (${sgn(x.score, 0)})`).join(" · ")}</p>` : "");
-      return main + `<tr class="diffrow"><td></td><td colspan="11">${detail}${extra}</td></tr>`;
+      return main + `<tr class="diffrow"><td></td><td colspan="13">${detail}${extra}</td></tr>`;
     }).join("");
     return `
       <section class="panel">
@@ -886,8 +886,8 @@ const A = {
         </div>
         <p class="small muted">Click a row to see the AI draft and exactly what was changed. Struck-through text was deleted from the AI draft; highlighted text was added. Review time is the gap between receiving the AI draft and submitting.</p>
         <div class="tablewrap"><table>
-          <thead><tr><th></th><th>Session</th><th>Condition</th><th>Person</th><th>Task</th><th>How</th><th class="num">Edit extent</th><th class="num">Review time</th><th>AI version</th><th>Source</th><th class="num">Submitted at</th><th>Grade</th></tr></thead>
-          <tbody>${body || `<tr><td colspan="12" class="muted">No responses match.</td></tr>`}</tbody>
+          <thead><tr><th></th><th>Session</th><th>Condition</th><th>Person</th><th>Task</th><th>How</th><th class="num">Chars changed</th><th class="num">Edit %</th><th class="num">Words +/−</th><th class="num">Review time</th><th>AI version</th><th>Source</th><th class="num">Submitted at</th><th>Grade</th></tr></thead>
+          <tbody>${body || `<tr><td colspan="14" class="muted">No responses match.</td></tr>`}</tbody>
         </table></div>
         ${rows.length > 400 ? `<p class="small muted">Showing the latest 400 rows. Export the CSV for all of them.</p>` : ""}
         ${this.csv ? `<label class="field" for="csvbox">CSV (select all and copy)<textarea id="csvbox" class="csvbox" readonly>${esc(this.csv)}</textarea></label>` : ""}
@@ -924,8 +924,8 @@ const A = {
   },
   exportPeople(){
     const C = this.compute(), pay = Object.fromEntries(C.sessions.map(s => [s.code, s]));
-    const rows = C.people.map(p => [p.code, p.trial ? "yes" : "no", p.condition, p.name, p.submitted, p.aiUsed, p.share ?? "", p.aiCalls, p.editMean ?? "", p.unedited, p.weakAi, p.weakUnedited, p.finish ? "yes" : "no", p.finish ? p.finish.secLeft : "", p.points, pay[p.code]?.points ?? "", pay[p.code]?.pool ?? "", pay[p.code]?.perPerson ?? "", pay[p.code]?.complete ? "yes" : "no"]);
-    this.download("delegation-lab-people.csv", this.csvOf(["session","trial","condition","person","submitted","ai_used","ai_share","ai_requests","mean_edit_ratio","ai_unedited","planted_error_ai","planted_error_unedited","finished_early","sec_left_at_finish","own_points","session_points","session_payout_inr","payout_per_person_inr","grading_complete"], rows));
+    const rows = C.people.map(p => [p.code, p.trial ? "yes" : "no", p.condition, p.name, p.submitted, p.aiUsed, p.share ?? "", p.aiCalls, p.charsMean ?? "", p.editMean ?? "", p.unedited, p.weakAi, p.weakUnedited, p.finish ? "yes" : "no", p.finish ? p.finish.secLeft : "", p.points, pay[p.code]?.points ?? "", pay[p.code]?.pool ?? "", pay[p.code]?.perPerson ?? "", pay[p.code]?.complete ? "yes" : "no"]);
+    this.download("delegation-lab-people.csv", this.csvOf(["session","trial","condition","person","submitted","ai_used","ai_share","ai_requests","mean_edit_chars","mean_edit_ratio","ai_unedited","planted_error_ai","planted_error_unedited","finished_early","sec_left_at_finish","own_points","session_points","session_payout_inr","payout_per_person_inr","grading_complete"], rows));
   },
 };
 

@@ -61,7 +61,8 @@ Data is stored in Netlify Blobs, which needs no setup.
 | Measure | Meaning |
 |---|---|
 | AI share | Submitted tasks where this person used the AI agent ÷ tasks they submitted |
-| Edit extent | Characters changed between the AI draft and the submitted text ÷ the longer of the two (Levenshtein distance). 0% = submitted as is. |
+| Characters changed | The smallest number of single-character insertions, deletions or replacements that turn the AI draft into the submitted text (Levenshtein distance). 0 = submitted as is. Spacing-only changes don't count. |
+| Edit % | Characters changed ÷ the length of the longer text (AI draft or submission) |
 | Words added / removed | Word-level difference between the AI draft and the submitted text |
 | Review time | Seconds between receiving the AI draft and submitting |
 | Planted errors passed | AI drafts with a planted error that were submitted unedited |
