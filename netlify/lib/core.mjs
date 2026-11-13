@@ -196,7 +196,7 @@ export function createHandler({ store, env = {}, now = () => Date.now(), fetchIm
   async function asMember(src) {
     const { code, session } = await loadSession(src.code);
     const me = src.memberId && (await getJ(`member/${code}/${slug(src.memberId)}`));
-    if (!me || me.token !== src.token) fail(401, "You're signed out of this session. To carry on, join again with the same code and the same name.");
+    if (!me || me.token !== src.token) fail(401, "You've been signed out of this session. To get back in, ask the experimenter for a rejoin code.");
     return { code, session, me };
   }
   async function removeMember(code, memberId) {
@@ -259,11 +259,20 @@ export function createHandler({ store, env = {}, now = () => Date.now(), fetchIm
       const key = `member/${code}/${memberId}`;
       const existing = await getJ(key);
       if (existing) {
-        // Rejoining with the same name (closed the tab, switched device, signed out): issue a fresh sign-in.
-        // Any other device still signed in under this name is signed out.
-        const token = b.token && b.token === existing.token ? existing.token : rand(24);
-        if (token !== existing.token) await put(key, { ...existing, token, rejoins: (existing.rejoins || 0) + 1, lastRejoinAt: now() });
-        return { code, memberId, name: existing.name, token, rejoined: token !== b.token };
+        // A name that is already taken can only be used again by
+        //  (a) the browser that holds its sign-in token, or
+        //  (b) someone with the one-time rejoin code the experimenter issued for this member.
+        // Typing the name alone is never enough: that would let one person act as another.
+        if (b.token && b.token === existing.token) return { code, memberId, name: existing.name, token: existing.token };
+        const rejoinCode = normCode(b.rejoinCode);
+        if (existing.resetCode && rejoinCode && rejoinCode === existing.resetCode) {
+          const token = rand(24);
+          await put(key, { ...existing, token, resetCode: null, rejoins: (existing.rejoins || 0) + 1, lastRejoinAt: now() });
+          return { code, memberId, name: existing.name, token, rejoined: true };
+        }
+        fail(409, rejoinCode
+          ? "That rejoin code isn't right for this name. Check both with the experimenter."
+          : "Someone with that name is already in this session. If that's you on a different device or browser, ask the experimenter to reset your sign-in and give you a rejoin code.");
       }
       if (await getJ(`start/${code}`)) fail(409, "This session has already started. Only people who joined before the start can come back, using the same name as before.");
       const rec = { memberId, name, token: rand(24), joinedAt: now() };
@@ -476,6 +485,17 @@ export function createHandler({ store, env = {}, now = () => Date.now(), fetchIm
       return { ok: true };
     },
 
+    "POST /admin/reset": async (b, q, req) => {
+      requirePassword(req, b, "EXPERIMENTER_PASSWORD", "admin", "experimenter");
+      const { code } = await loadSession(b.code);
+      const key = `member/${code}/${slug(b.memberId)}`;
+      const m = await getJ(key);
+      if (!m) fail(404, "That member isn't in this session.");
+      const resetCode = rand(6, ALPHA);
+      await put(key, { ...m, token: rand(24), resetCode, resetAt: now(), resets: (m.resets || 0) + 1 });
+      return { name: m.name, resetCode };
+    },
+
     "POST /admin/trial": async (b, q, req) => {
       requirePassword(req, b, "EXPERIMENTER_PASSWORD", "admin", "experimenter");
       const { code, session } = await loadSession(b.code);
@@ -505,7 +525,7 @@ export function createHandler({ store, env = {}, now = () => Date.now(), fetchIm
       return {
         now: now(), demo, settings: await getSettings(),
         sessions: sessions.map((s, i) => s && { ...s, ...timing(s, starts[i]) }).filter(Boolean),
-        members: mem.map((m, i) => m && ({ code: memberKeys[i].split("/")[1], memberId: m.memberId, name: m.name, joinedAt: m.joinedAt, rejoins: m.rejoins || 0 })).filter(Boolean),
+        members: mem.map((m, i) => m && ({ code: memberKeys[i].split("/")[1], memberId: m.memberId, name: m.name, joinedAt: m.joinedAt, rejoins: m.rejoins || 0, resetCode: m.resetCode || null })).filter(Boolean),
         agents: agents.filter(Boolean),
         subs: subs.filter(Boolean),
         ratings: ratings.filter(Boolean),

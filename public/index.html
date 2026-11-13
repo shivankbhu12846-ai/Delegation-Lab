@@ -177,6 +177,20 @@ const ls = {
   set(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} },
   del(k){ try{ localStorage.removeItem(k); }catch(e){} },
 };
+const credStore = {
+  get(){
+    try { const v = sessionStorage.getItem("dl-creds"); if (v) return JSON.parse(v); if (sessionStorage.getItem("dl-own-tab")) return null; } catch(e){}
+    return ls.get("dl-creds");
+  },
+  set(v){ try { sessionStorage.setItem("dl-creds", JSON.stringify(v)); } catch(e){} ls.set("dl-creds", v); },
+  // This tab stops sharing the browser's last sign-in, so another person can join here (testing on one computer)
+  detachTab(){ try { sessionStorage.removeItem("dl-creds"); sessionStorage.setItem("dl-own-tab", "1"); } catch(e){} },
+  del(v){
+    try { sessionStorage.removeItem("dl-creds"); } catch(e){}
+    const l = ls.get("dl-creds");
+    if (!v || (l && l.code === v.code && l.memberId === v.memberId)) ls.del("dl-creds");
+  },
+};
 let skew = 0;
 const serverNow = () => Date.now() + skew;
 const mmss = (ms) => { const s = Math.max(0, Math.ceil(ms/1000)); return String(Math.floor(s/60)).padStart(2,"0") + ":" + String(s%60).padStart(2,"0"); };
@@ -246,8 +260,8 @@ window.addEventListener("hashchange", () => { clearTimers(); boot(); });
 
 /* ================= participant ================= */
 const P = {
-  creds: ls.get("dl-creds"), state: null, drafts: {}, agent: {}, submitted: {}, current: null,
-  pendingAgent: {}, pendingSubmit: {}, error: "", joinError: "", loading: false, sig: "",
+  creds: credStore.get(), state: null, drafts: {}, agent: {}, submitted: {}, current: null,
+  pendingAgent: {}, pendingSubmit: {}, error: "", joinError: "", joinForm: { code: "", name: "", rejoin: "" }, loading: false, sig: "",
 
   draftsKey(){ return `dl-drafts-${this.creds.code}-${this.creds.memberId}`; },
   saveDrafts(){ if (this.creds) ls.set(this.draftsKey(), this.drafts); },
@@ -318,18 +332,25 @@ const P = {
   leave(msg){
     clearTimeout(this.pollT);
     if (this.creds) ls.del(this.draftsKey());
-    ls.del("dl-creds"); this.creds = null; this.state = null; this.sig = ""; this.drafts = {}; this.agent = {}; this.submitted = {}; this.current = null;
+    credStore.del(this.creds); this.creds = null; this.state = null; this.sig = ""; this.drafts = {}; this.agent = {}; this.submitted = {}; this.current = null;
     this.joinError = msg || ""; this.render();
   },
-  async join(code, name){
+  async join(code, name, rejoinCode){
+    this.joinForm = { code, name, rejoin: rejoinCode || "" };
     this.joinError = ""; this.loading = true; this.render();
     try {
-      const r = await api("POST", "/join", { code, name });
+      const r = await api("POST", "/join", { code, name, rejoinCode });
       this.creds = { code: r.code, memberId: r.memberId, name: r.name, token: r.token };
-      ls.set("dl-creds", this.creds);
+      credStore.set(this.creds);
+      this.joinForm = { code: "", name: "", rejoin: "" };
       try { history.replaceState(null, "", location.pathname + location.hash); } catch(e){}
       this.loading = false; await this.start();
     } catch (e) { this.loading = false; this.joinError = e.message; this.render(); }
+  },
+  switchTab(){
+    clearTimeout(this.pollT); credStore.detachTab();
+    this.creds = null; this.state = null; this.sig = ""; this.drafts = {}; this.agent = {}; this.submitted = {}; this.current = null;
+    this.joinError = ""; this.render();
   },
   async leaveLobby(){
     try { await api("POST", "/leave", this.creds); this.leave(""); }
@@ -373,7 +394,8 @@ const P = {
     paint(this.workView(ph));
   },
   joinView(){
-    const code = new URLSearchParams(location.search).get("s") || "";
+    const f = this.joinForm;
+    const code = f.code || new URLSearchParams(location.search).get("s") || "";
     return `
     <section class="panel narrow">
       <div class="eyebrow">Participant</div>
@@ -381,10 +403,13 @@ const P = {
       <p class="muted">Enter the session code the experimenter gave you, and your name. In a group session, all four members join with the same code from their own computers.</p>
       <form id="joinform" class="panel" style="padding:0;border:0">
         <label class="field" for="j-code">Session code<input type="text" class="code" id="j-code" autocomplete="off" maxlength="8" value="${esc(code)}" required></label>
-        <label class="field" for="j-name">Your name<input type="text" id="j-name" autocomplete="name" maxlength="40" required></label>
+        <label class="field" for="j-name">Your name<input type="text" id="j-name" autocomplete="name" maxlength="40" value="${esc(f.name)}" required></label>
+        <details ${f.rejoin || (this.joinError && /rejoin/i.test(this.joinError)) ? "open" : ""}><summary class="small muted">I have a rejoin code from the experimenter</summary>
+          <label class="field" for="j-rejoin" style="margin-top:8px">Rejoin code<input type="text" class="code" id="j-rejoin" autocomplete="off" maxlength="8" value="${esc(f.rejoin)}"></label>
+        </details>
         ${this.joinError ? `<p class="err" role="alert">${esc(this.joinError)}</p>` : ""}
         <div class="row"><button class="btn primary" type="submit" ${this.loading ? "disabled" : ""}>${this.loading ? "Joining…" : "Join session"}</button></div>
-        <p class="small muted">Left by accident, or switching to another device? Join again with the same code and <b>exactly the same name</b> to pick up where you left off.</p>
+        <p class="small muted">Closed the page by accident? Open the site again in the same browser and you'll be signed straight back in. On a different device or browser, ask the experimenter for a rejoin code.</p>
       </form>
     </section>`;
   },
@@ -417,13 +442,14 @@ const P = {
         ${group ? `<p class="muted">${st.members.length} of ${st.size} members have joined.</p>
           <div class="memberlist">${slots.map(m => m ? `<span class="${m.memberId === st.me.memberId ? "me" : ""}">${esc(m.name)}${m.memberId === st.me.memberId ? " (you)" : ""}</span>` : `<span class="empty">Waiting…</span>`).join("")}</div>` :
           `<p>Signed in as <b>${esc(st.me.name)}</b>.</p>`}
-        <p class="muted small">${group ? "Any member can start once all four have joined. Starting begins the reading minute for everyone." : "The clock starts as soon as you press Start."} If you get signed out, join again with the same name.</p>
+        <p class="muted small">${group ? "Any member can start once all four have joined. Starting begins the reading minute for everyone." : "The clock starts as soon as you press Start."} Stay in this browser: it keeps you signed in.</p>
         ${this.error ? `<p class="err" role="alert">${esc(this.error)}</p>` : ""}
         <div class="row">
           <button type="button" class="btn primary" data-act="begin" ${full ? "" : "disabled"}>Start</button>
           <div class="spacer"></div>
           <button type="button" class="linkbtn small" data-act="leave-lobby">Not ${esc(st.me.name)}? Leave and free this seat</button>
         </div>
+        ${group ? `<p class="small muted">Testing several members on one computer? <button type="button" class="linkbtn" data-act="switch-tab">Use this tab for another person</button> (${esc(st.me.name)} stays signed in on their own tab).</p>` : ""}
       </div>
       <div class="panel">
         <div class="eyebrow">How it works</div>
@@ -768,7 +794,9 @@ const A = {
             <td><b style="font-family:var(--f-mono)">${esc(s.code)}</b>${s.trial ? ` <span class="chip warn">Trial</span>` : ""}</td>
             <td>${s.condition === "group" ? "Group" : "Individual"}</td>
             <td class="wrapcell">${esc(s.label || "")}</td>
-            <td class="wrapcell members">${s.members.map(m => `<span class="mem">` + esc(m.name) + (s.phase === "lobby" ? ` <button type="button" class="linkbtn small" data-act="kick" data-code="${s.code}" data-member="${esc(m.memberId)}" data-name="${esc(m.name)}" title="Remove ${esc(m.name)} and free the seat">remove</button>` : "") + (m.rejoins ? ` <span class="chip" title="Signed in again ${m.rejoins} time(s)">rejoined</span>` : "") + `</span>`).join(s.phase === "lobby" ? "" : ", ") || `<span class="muted">nobody yet</span>`}</td>
+            <td class="wrapcell members">${s.members.map(m => `<span class="mem">` + esc(m.name) + (s.phase === "lobby" ? ` <button type="button" class="linkbtn small" data-act="kick" data-code="${s.code}" data-member="${esc(m.memberId)}" data-name="${esc(m.name)}" title="Remove ${esc(m.name)} and free the seat">remove</button>` : "")
+              + (s.phase !== "finished" ? ` <button type="button" class="linkbtn small" data-act="reset" data-code="${s.code}" data-member="${esc(m.memberId)}" data-name="${esc(m.name)}" title="Sign ${esc(m.name)} out everywhere and give them a one-time rejoin code">reset sign-in</button>` : "")
+              + (m.resetCode ? ` <span class="chip warn" title="One-time rejoin code for ${esc(m.name)}">code ${esc(m.resetCode)}</span>` : "") + (m.rejoins ? ` <span class="chip" title="Signed in again ${m.rejoins} time(s)">rejoined</span>` : "") + `</span>`).join("") || `<span class="muted">nobody yet</span>`}</td>
             <td>${this.statusCell(s)}</td>
             <td class="num">${s.subCount} / ${s.taskIds.length}</td>
             <td class="num">${s.aiCount}</td>
@@ -941,7 +969,7 @@ const A = {
 document.addEventListener("submit", (e) => {
   e.preventDefault();
   const id = e.target.id;
-  if (id === "joinform") P.join($("#j-code").value, $("#j-name").value);
+  if (id === "joinform") P.join($("#j-code").value, $("#j-name").value, $("#j-rejoin").value);
   else if (id === "gform") { G.judge = $("#g-name").value.trim(); G.key = $("#g-key").value; ls.set("dl-judge", G.judge); ls.set("dl-gkey", G.key); G.error = ""; G.next(); }
   else if (id === "aform") { A.key = $("#a-key").value; ls.set("dl-akey", A.key); A.error = ""; clearTimers(); A.start(); }
   else if (id === "createform") {
@@ -956,7 +984,7 @@ document.addEventListener("input", (e) => {
   const t = e.target;
   if (t.id === "answer" && P.current) { P.drafts[P.current] = t.value; P.saveDrafts(); }
   if (t.id === "c-label") A.form.label = t.value;
-  if (t.id === "j-code") { const p = t.selectionStart; t.value = t.value.toUpperCase(); try { t.setSelectionRange(p, p); } catch(err){} }
+  if (t.id === "j-code" || t.id === "j-rejoin") { const p = t.selectionStart; t.value = t.value.toUpperCase(); try { t.setSelectionRange(p, p); } catch(err){} }
   if (A.settingsDraft) {
     if (t.id === "s-prev") A.settingsDraft.previewSec = t.value;
     if (t.id === "s-work") A.settingsDraft.workSec = t.value;
@@ -990,6 +1018,8 @@ document.addEventListener("click", (e) => {
     case "begin": P.begin(); break;
     case "leave": P.leave(""); break;
     case "leave-lobby": P.leaveLobby(); break;
+    case "switch-tab": P.switchTab(); break;
+    case "reset": confirmClick(t, "reset-" + t.dataset.code + t.dataset.member, "Click again to reset", () => A.act("/admin/reset", { code: t.dataset.code, memberId: t.dataset.member }, (r) => `Rejoin code for ${r.name}: ${r.resetCode}. They join with session code ${t.dataset.code}, the same name, and this rejoin code. It works once.`)); break;
     case "kick": confirmClick(t, "kick-" + t.dataset.code + t.dataset.member, "Click again to remove", () => A.act("/admin/remove", { code: t.dataset.code, memberId: t.dataset.member }, `Removed ${t.dataset.name} from ${t.dataset.code}. Their seat is free.`)); break;
     case "finish": confirmClick(t, "finish", "Click again to finish. You can't do more tasks", () => P.finish()); break;
     case "agent": P.askAgent(t.dataset.id); break;
