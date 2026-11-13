@@ -148,6 +148,9 @@ td.wrapcell{white-space:normal}
 .diff{white-space:pre-wrap;line-height:1.55;font-size:.92rem;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px}
 .diff del{background:var(--bad-soft);color:var(--bad);text-decoration:line-through}
 .diff ins{background:var(--good-soft);color:var(--good);text-decoration:none}
+td.members{min-width:210px}
+td.members .mem{white-space:nowrap}
+tr td.members .mem{display:inline-block;margin-right:6px}
 .filters{display:flex;gap:10px;flex-wrap:wrap;align-items:end}
 .filters label.field{min-width:150px}
 svg text{fill:var(--muted);font-family:var(--f-body);font-size:12px}
@@ -328,6 +331,10 @@ const P = {
       this.loading = false; await this.start();
     } catch (e) { this.loading = false; this.joinError = e.message; this.render(); }
   },
+  async leaveLobby(){
+    try { await api("POST", "/leave", this.creds); this.leave(""); }
+    catch (e) { if (e.status === 401 || e.status === 404) this.leave(""); else { this.error = e.message; this.render(); } }
+  },
   async begin(){
     try { await api("POST", "/start", this.creds); await this.poll(true); }
     catch (e) { this.error = e.message; this.render(); }
@@ -377,6 +384,7 @@ const P = {
         <label class="field" for="j-name">Your name<input type="text" id="j-name" autocomplete="name" maxlength="40" required></label>
         ${this.joinError ? `<p class="err" role="alert">${esc(this.joinError)}</p>` : ""}
         <div class="row"><button class="btn primary" type="submit" ${this.loading ? "disabled" : ""}>${this.loading ? "Joining…" : "Join session"}</button></div>
+        <p class="small muted">Left by accident, or switching to another device? Join again with the same code and <b>exactly the same name</b> to pick up where you left off.</p>
       </form>
     </section>`;
   },
@@ -409,12 +417,12 @@ const P = {
         ${group ? `<p class="muted">${st.members.length} of ${st.size} members have joined.</p>
           <div class="memberlist">${slots.map(m => m ? `<span class="${m.memberId === st.me.memberId ? "me" : ""}">${esc(m.name)}${m.memberId === st.me.memberId ? " (you)" : ""}</span>` : `<span class="empty">Waiting…</span>`).join("")}</div>` :
           `<p>Signed in as <b>${esc(st.me.name)}</b>.</p>`}
-        <p class="muted small">${group ? "Any member can start once all four have joined. Starting begins the reading minute for everyone." : "The clock starts as soon as you press Start."}</p>
+        <p class="muted small">${group ? "Any member can start once all four have joined. Starting begins the reading minute for everyone." : "The clock starts as soon as you press Start."} If you get signed out, join again with the same name.</p>
         ${this.error ? `<p class="err" role="alert">${esc(this.error)}</p>` : ""}
         <div class="row">
           <button type="button" class="btn primary" data-act="begin" ${full ? "" : "disabled"}>Start</button>
           <div class="spacer"></div>
-          <button type="button" class="linkbtn small" data-act="leave">Not ${esc(st.me.name)}? Leave</button>
+          <button type="button" class="linkbtn small" data-act="leave-lobby">Not ${esc(st.me.name)}? Leave and free this seat</button>
         </div>
       </div>
       <div class="panel">
@@ -616,7 +624,7 @@ const A = {
       const ai = mine.filter(s => s.aiUsed);
       const weakAi = ai.filter(s => s.version === "weak");
       return {
-        code: m.code, memberId: m.memberId, name: m.name, condition: S[m.code].condition, trial: S[m.code].trial,
+        code: m.code, memberId: m.memberId, name: m.name, rejoins: m.rejoins || 0, condition: S[m.code].condition, trial: S[m.code].trial,
         submitted: mine.length, aiUsed: ai.length, share: mine.length ? ai.length / mine.length : null,
         aiCalls: d.agents.filter(a => a.code === m.code && a.memberId === m.memberId).length,
         editMean: ai.length ? mean(ai.map(s => s.editRatio)) : null, charsMean: ai.length ? mean(ai.map(s => s.editChars || 0)) : null, unedited: ai.filter(s => !s.edited).length,
@@ -760,7 +768,7 @@ const A = {
             <td><b style="font-family:var(--f-mono)">${esc(s.code)}</b>${s.trial ? ` <span class="chip warn">Trial</span>` : ""}</td>
             <td>${s.condition === "group" ? "Group" : "Individual"}</td>
             <td class="wrapcell">${esc(s.label || "")}</td>
-            <td class="wrapcell">${s.members.map(m => esc(m.name)).join(", ") || `<span class="muted">nobody yet</span>`}</td>
+            <td class="wrapcell members">${s.members.map(m => `<span class="mem">` + esc(m.name) + (s.phase === "lobby" ? ` <button type="button" class="linkbtn small" data-act="kick" data-code="${s.code}" data-member="${esc(m.memberId)}" data-name="${esc(m.name)}" title="Remove ${esc(m.name)} and free the seat">remove</button>` : "") + (m.rejoins ? ` <span class="chip" title="Signed in again ${m.rejoins} time(s)">rejoined</span>` : "") + `</span>`).join(s.phase === "lobby" ? "" : ", ") || `<span class="muted">nobody yet</span>`}</td>
             <td>${this.statusCell(s)}</td>
             <td class="num">${s.subCount} / ${s.taskIds.length}</td>
             <td class="num">${s.aiCount}</td>
@@ -824,7 +832,7 @@ const A = {
         <div class="row"><h2>People and payouts</h2><div class="spacer"></div><button type="button" class="btn sm" data-act="csv-people">Export CSV</button></div>
         <div class="tablewrap"><table>
           <thead><tr><th>Person</th><th>Session</th><th>Condition</th><th class="num">Submitted</th><th class="num">With AI</th><th class="num">AI share</th><th class="num">AI requests</th><th class="num">Mean chars changed</th><th class="num">Mean edit %</th><th class="num">Unedited AI</th><th class="num">Planted errors passed</th><th>Finished</th><th class="num">Own points</th><th class="num">Payout</th></tr></thead>
-          <tbody>${ps.map(p => `<tr class="${p.trial ? "trial" : ""}"><td><b>${esc(p.name)}</b></td><td style="font-family:var(--f-mono)">${esc(p.code)}</td><td>${p.condition === "group" ? "Group" : "Individual"}</td>
+          <tbody>${ps.map(p => `<tr class="${p.trial ? "trial" : ""}"><td><b>${esc(p.name)}</b>${p.rejoins ? ` <span class="chip" title="Signed in again ${p.rejoins} time(s)">rejoined ×${p.rejoins}</span>` : ""}</td><td style="font-family:var(--f-mono)">${esc(p.code)}</td><td>${p.condition === "group" ? "Group" : "Individual"}</td>
             <td class="num">${p.submitted}</td><td class="num">${p.aiUsed}</td><td class="num">${pct(p.share)}</td><td class="num">${p.aiCalls}</td><td class="num">${p.charsMean == null ? "–" : Math.round(p.charsMean)}</td><td class="num">${pct(p.editMean)}</td>
             <td class="num">${p.unedited}</td><td class="num">${p.weakUnedited} of ${p.weakAi}</td>
             <td>${p.finish ? `Early · ${mmss(p.finish.secLeft * 1000)} left` : `<span class="muted">${A.data.sessions.find(x => x.code === p.code)?.phase === "finished" ? "At time" : "–"}</span>`}</td><td class="num">${sgn(p.points)}</td>
@@ -924,8 +932,8 @@ const A = {
   },
   exportPeople(){
     const C = this.compute(), pay = Object.fromEntries(C.sessions.map(s => [s.code, s]));
-    const rows = C.people.map(p => [p.code, p.trial ? "yes" : "no", p.condition, p.name, p.submitted, p.aiUsed, p.share ?? "", p.aiCalls, p.charsMean ?? "", p.editMean ?? "", p.unedited, p.weakAi, p.weakUnedited, p.finish ? "yes" : "no", p.finish ? p.finish.secLeft : "", p.points, pay[p.code]?.points ?? "", pay[p.code]?.pool ?? "", pay[p.code]?.perPerson ?? "", pay[p.code]?.complete ? "yes" : "no"]);
-    this.download("delegation-lab-people.csv", this.csvOf(["session","trial","condition","person","submitted","ai_used","ai_share","ai_requests","mean_edit_chars","mean_edit_ratio","ai_unedited","planted_error_ai","planted_error_unedited","finished_early","sec_left_at_finish","own_points","session_points","session_payout_inr","payout_per_person_inr","grading_complete"], rows));
+    const rows = C.people.map(p => [p.code, p.trial ? "yes" : "no", p.condition, p.name, p.submitted, p.aiUsed, p.share ?? "", p.aiCalls, p.charsMean ?? "", p.editMean ?? "", p.unedited, p.weakAi, p.weakUnedited, p.finish ? "yes" : "no", p.finish ? p.finish.secLeft : "", p.rejoins, p.points, pay[p.code]?.points ?? "", pay[p.code]?.pool ?? "", pay[p.code]?.perPerson ?? "", pay[p.code]?.complete ? "yes" : "no"]);
+    this.download("delegation-lab-people.csv", this.csvOf(["session","trial","condition","person","submitted","ai_used","ai_share","ai_requests","mean_edit_chars","mean_edit_ratio","ai_unedited","planted_error_ai","planted_error_unedited","finished_early","sec_left_at_finish","rejoins","own_points","session_points","session_payout_inr","payout_per_person_inr","grading_complete"], rows));
   },
 };
 
@@ -981,6 +989,8 @@ document.addEventListener("click", (e) => {
   switch (act) {
     case "begin": P.begin(); break;
     case "leave": P.leave(""); break;
+    case "leave-lobby": P.leaveLobby(); break;
+    case "kick": confirmClick(t, "kick-" + t.dataset.code + t.dataset.member, "Click again to remove", () => A.act("/admin/remove", { code: t.dataset.code, memberId: t.dataset.member }, `Removed ${t.dataset.name} from ${t.dataset.code}. Their seat is free.`)); break;
     case "finish": confirmClick(t, "finish", "Click again to finish. You can't do more tasks", () => P.finish()); break;
     case "agent": P.askAgent(t.dataset.id); break;
     case "submit": P.submit(t.dataset.id); break;

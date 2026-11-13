@@ -80,4 +80,4 @@ Settings apply to sessions created after you save them.
 
 - **Free API keys** have rate limits. Several groups working at once can hit them. When a call fails, the agent falls back to the prepared answer, and the *Source* column shows it.
 - **Grading queue:** graders see submissions from every finished session, trial runs included. Delete trial sessions before your real graders start.
-- **Signing back in:** a participant who closes the browser can come back on the same browser. If they switch devices, they need to join again under a different name.
+- **Leaving and rejoining:** before the start, *Leave and free this seat* in the waiting room removes a participant so someone else can take the seat. You can also click *remove* next to a name in the sessions table. Anyone who gets signed out (closed tab, new device, pressed Sign out) can come back at any time, even mid-session, by joining with the same code and exactly the same name. Their AI drafts and submissions are kept, and any other device signed in under that name is signed out. The dashboard marks people who rejoined. After the start, nobody new can join.

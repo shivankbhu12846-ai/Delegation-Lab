@@ -196,8 +196,13 @@ export function createHandler({ store, env = {}, now = () => Date.now(), fetchIm
   async function asMember(src) {
     const { code, session } = await loadSession(src.code);
     const me = src.memberId && (await getJ(`member/${code}/${slug(src.memberId)}`));
-    if (!me || me.token !== src.token) fail(401, "You're no longer signed in to this session. Join again with the session code.");
+    if (!me || me.token !== src.token) fail(401, "You're signed out of this session. To carry on, join again with the same code and the same name.");
     return { code, session, me };
+  }
+  async function removeMember(code, memberId) {
+    const slots = await keys(`slot/${code}/`);
+    const owned = (await pmap(slots, getJ)).map((v, i) => (v && v.memberId === memberId ? slots[i] : null)).filter(Boolean);
+    await pmap([`member/${code}/${memberId}`, ...owned], (k) => store.delete(k));
   }
   async function members(code) {
     const list = await pmap(await keys(`member/${code}/`), getJ);
@@ -254,19 +259,32 @@ export function createHandler({ store, env = {}, now = () => Date.now(), fetchIm
       const key = `member/${code}/${memberId}`;
       const existing = await getJ(key);
       if (existing) {
-        if (b.token && b.token === existing.token) return { code, memberId, name: existing.name, token: existing.token };
-        fail(409, "Someone with that name has already joined this session. If that was you, use the same browser you joined with. Otherwise, add your surname or an initial.");
+        // Rejoining with the same name (closed the tab, switched device, signed out): issue a fresh sign-in.
+        // Any other device still signed in under this name is signed out.
+        const token = b.token && b.token === existing.token ? existing.token : rand(24);
+        if (token !== existing.token) await put(key, { ...existing, token, rejoins: (existing.rejoins || 0) + 1, lastRejoinAt: now() });
+        return { code, memberId, name: existing.name, token, rejoined: token !== b.token };
       }
-      if (await getJ(`start/${code}`)) fail(409, "This session has already started, so no one else can join.");
+      if (await getJ(`start/${code}`)) fail(409, "This session has already started. Only people who joined before the start can come back, using the same name as before.");
       const rec = { memberId, name, token: rand(24), joinedAt: now() };
-      if (!(await put(key, rec, { onlyIfNew: true })).modified) fail(409, "Someone with that name has just joined. Add your surname or an initial.");
+      if (!(await put(key, rec, { onlyIfNew: true })).modified) fail(409, "Someone with that name has just joined. If that wasn't you, add your surname or an initial.");
       for (let i = 0; i < session.size; i++) {
         if ((await put(`slot/${code}/${i}`, { memberId }, { onlyIfNew: true })).modified) {
+          await put(key, { ...rec, slot: i });
           return { code, memberId, name, token: rec.token };
         }
       }
       await store.delete(key);
-      fail(409, session.size === 1 ? "Someone has already joined this individual session." : "This group already has four members.");
+      fail(409, session.size === 1
+        ? "Someone else has already joined this individual session. If that was you, use the same name as before."
+        : "This group already has four members. If you were one of them, use the same name as before.");
+    },
+
+    "POST /leave": async (b) => {
+      const { code, me } = await asMember(b);
+      if (await getJ(`start/${code}`)) fail(409, "The session has started, so you can't leave the group now. Press I'm done when you've finished.");
+      await removeMember(code, me.memberId);
+      return { ok: true };
     },
 
     "GET /state": async (_, q) => {
@@ -450,6 +468,14 @@ export function createHandler({ store, env = {}, now = () => Date.now(), fetchIm
       return { ok: true };
     },
 
+    "POST /admin/remove": async (b, q, req) => {
+      requirePassword(req, b, "EXPERIMENTER_PASSWORD", "admin", "experimenter");
+      const { code } = await loadSession(b.code);
+      if (await getJ(`start/${code}`)) fail(409, "This session has started, so members can't be removed. Their data is part of the session.");
+      await removeMember(code, slug(b.memberId));
+      return { ok: true };
+    },
+
     "POST /admin/trial": async (b, q, req) => {
       requirePassword(req, b, "EXPERIMENTER_PASSWORD", "admin", "experimenter");
       const { code, session } = await loadSession(b.code);
@@ -479,7 +505,7 @@ export function createHandler({ store, env = {}, now = () => Date.now(), fetchIm
       return {
         now: now(), demo, settings: await getSettings(),
         sessions: sessions.map((s, i) => s && { ...s, ...timing(s, starts[i]) }).filter(Boolean),
-        members: mem.map((m, i) => m && ({ code: memberKeys[i].split("/")[1], memberId: m.memberId, name: m.name, joinedAt: m.joinedAt })).filter(Boolean),
+        members: mem.map((m, i) => m && ({ code: memberKeys[i].split("/")[1], memberId: m.memberId, name: m.name, joinedAt: m.joinedAt, rejoins: m.rejoins || 0 })).filter(Boolean),
         agents: agents.filter(Boolean),
         subs: subs.filter(Boolean),
         ratings: ratings.filter(Boolean),
