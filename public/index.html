@@ -94,7 +94,15 @@ textarea:disabled{opacity:.65}
 .scaletbl{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));border:1px solid var(--line);border-radius:6px;overflow:hidden;font-size:.86rem;text-align:center}
 .scaletbl div{padding:6px 4px;border-left:1px solid var(--line)} .scaletbl div:first-child{border-left:0}
 .scaletbl b{display:block;font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+@media (max-width:520px){.scaletbl{grid-template-columns:1fr;text-align:left}.scaletbl div{display:flex;justify-content:space-between;gap:12px;padding:6px 10px;border-left:0;border-top:1px solid var(--line)}.scaletbl div:first-child{border-top:0}.scaletbl b{display:inline}}
 .bigcode{font-family:var(--f-mono);font-size:2rem;letter-spacing:.14em;font-weight:500}
+.lobby{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(280px,1fr);gap:20px;align-items:start}
+@media (max-width:820px){.lobby{grid-template-columns:1fr}}
+.startcard{position:sticky;top:16px}
+@media (max-width:820px){.startcard{position:static}}
+.big-start{padding:12px 18px;font-size:1.05rem;width:100%}
+.steps{display:grid;gap:12px;margin:0;padding-left:22px;max-width:70ch}
+.steps li::marker{font-family:var(--f-mono);color:var(--accent);font-weight:500}
 /* participant workspace */
 .runbar{display:flex;gap:12px 20px;align-items:center;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 16px}
 .runbar.preview{border-color:var(--warn);box-shadow:inset 4px 0 0 var(--warn)}
@@ -168,7 +176,8 @@ svg text{fill:var(--muted);font-family:var(--f-body);font-size:12px}
 /* ================= shared ================= */
 const SCALE = [[-2,"Bad"],[-1,"Not good"],[0,"Satisfactory"],[1,"Good"],[2,"Very good"]];
 const LABEL = Object.fromEntries(SCALE);
-const RS_PER_POINT = 2;
+// Payout rate: a perfect individual (10 tasks × +2 points) earns the maximum payout
+const rateOf = (settings) => ((settings && settings.maxPayout) ?? 125) / 20;
 const DISCLAIMER = "Past organisational experience shows that the AI agent’s output is rated Good or Very good about 75% of the time.";
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -197,6 +206,7 @@ const mmss = (ms) => { const s = Math.max(0, Math.ceil(ms/1000)); return String(
 const pct = (x) => x == null || isNaN(x) ? "–" : Math.round(x*100) + "%";
 const sgn = (x, d=1) => x == null || isNaN(x) ? "–" : (x > 0 ? "+" : x < 0 ? "−" : "") + Math.abs(x).toFixed(d);
 const inr = (x) => x == null ? "–" : "₹" + (Math.round(x*100)/100).toLocaleString("en-IN", {minimumFractionDigits: x % 1 ? 2 : 0, maximumFractionDigits: 2});
+const fmtDur = (sec) => { sec = +sec; if (sec % 60) return sec + " seconds"; const m = sec / 60; return m === 1 ? "1 minute" : m + " minutes"; };
 const mean = (a) => a.length ? a.reduce((x,y)=>x+y,0)/a.length : null;
 
 async function api(method, path, body, key){
@@ -261,7 +271,7 @@ window.addEventListener("hashchange", () => { clearTimers(); boot(); });
 /* ================= participant ================= */
 const P = {
   creds: credStore.get(), state: null, drafts: {}, agent: {}, submitted: {}, current: null,
-  pendingAgent: {}, pendingSubmit: {}, error: "", joinError: "", joinForm: { code: "", name: "", rejoin: "" }, loading: false, sig: "",
+  pendingAgent: {}, pendingSubmit: {}, ack: {}, showHelp: false, error: "", joinError: "", joinForm: { code: "", name: "", rejoin: "" }, loading: false, sig: "",
 
   draftsKey(){ return `dl-drafts-${this.creds.code}-${this.creds.memberId}`; },
   saveDrafts(){ if (this.creds) ls.set(this.draftsKey(), this.drafts); },
@@ -356,8 +366,8 @@ const P = {
     try { await api("POST", "/leave", this.creds); this.leave(""); }
     catch (e) { if (e.status === 401 || e.status === 404) this.leave(""); else { this.error = e.message; this.render(); } }
   },
-  async begin(){
-    try { await api("POST", "/start", this.creds); await this.poll(true); }
+  async begin(force){
+    try { await api("POST", "/start", { ...this.creds, force: !!force }); await this.poll(true); }
     catch (e) { this.error = e.message; this.render(); }
   },
   async askAgent(id){
@@ -400,7 +410,8 @@ const P = {
     <section class="panel narrow">
       <div class="eyebrow">Participant</div>
       <h1>Join a session</h1>
-      <p class="muted">Enter the session code the experimenter gave you, and your name. In a group session, all four members join with the same code from their own computers.</p>
+      <p class="muted">This is a short study about workplace tasks and an AI assistant. It takes about 15 minutes. Enter the session code you were given and your name; you'll see full instructions on the next screen before anything starts.</p>
+      <p class="muted small">In a group session, all four members join with the same code, each on their own computer.</p>
       <form id="joinform" class="panel" style="padding:0;border:0">
         <label class="field" for="j-code">Session code<input type="text" class="code" id="j-code" autocomplete="off" maxlength="8" value="${esc(code)}" required></label>
         <label class="field" for="j-name">Your name<input type="text" id="j-name" autocomplete="name" maxlength="40" value="${esc(f.name)}" required></label>
@@ -413,47 +424,56 @@ const P = {
       </form>
     </section>`;
   },
-  rulesHtml(st){
+  instructionsHtml(st, compact){
     const group = st.condition === "group";
+    const rate = inr(st.rsPerPoint), max = inr(st.maxPayout);
+    const n = st.totalTasks;
     return `
-      <ol class="rules">
-        <li>${group
-          ? `Your group shares <b>${st.totalTasks} workplace tasks</b>. Any member can do any task, and once a task is submitted it's done for the whole group. Agree among yourselves who does what.`
-          : `You get <b>${st.totalTasks} workplace tasks</b>.`}</li>
-        <li>You have <b>${Math.round(st.previewSec/60*10)/10 === 1 ? "1 minute" : st.previewSec + " seconds"}</b> to read the tasks, then <b>${st.workSec % 60 ? st.workSec + " seconds" : st.workSec/60 + " minutes"}</b> to work.</li>
-        <li>For each task, write the answer yourself or ask the AI agent. You can edit the agent's draft before submitting. <b>Only submitted tasks count.</b></li>
-        <li>Independent graders rate every submitted task on this scale. Anything below Satisfactory costs points.</li>
+      <ol class="steps">
+        <li><b>Your job.</b> You work at Alderbrook Foods, a snack company in Vienna. ${group
+          ? `Your group of ${st.size} shares <b>${n} short workplace tasks</b>, about ${Math.round(n / st.size)} each.`
+          : `You get <b>${n} short workplace tasks</b>.`} They are emails, replies, meeting notes, summaries and short reports. Each task opens with a situation from your boss, Katrin Weiss, and everything you need is shown with it.</li>
+        <li><b>Reading time: ${fmtDur(st.previewSec)}.</b> ${group ? "When any member presses Start, the clock starts for the whole group." : "When you press Start, the clock starts."} First you get ${fmtDur(st.previewSec)} to read all the tasks. You can't type or use the AI agent yet.${group ? " Use this time to agree who does which tasks." : ""}</li>
+        <li><b>Working time: ${fmtDur(st.workSec)}.</b> Open any task from the list, in any order. Write the answer yourself, or press <b>Ask the AI agent</b> to get a draft in your answer box. You can edit the draft or submit it as it is. Press <b>Submit</b> to hand a task in. You can't change a task after submitting it.${group ? " Each of you works on your own computer. Once anyone submits a task, it's done for the whole group, and everyone sees who did it." : ""}</li>
+        <li><b>Grading.</b> Afterwards, independent graders rate every submitted task without knowing who wrote it. A task you don't submit scores 0, so a poor answer can cost more than skipping.
+          <div class="scaletbl" aria-label="Rating scale" style="margin-top:8px">${SCALE.map(([v,l]) => `<div>${l}<b>${v>0?"+":v<0?"−":""}${Math.abs(v)} point${Math.abs(v)===1?"":"s"}</b></div>`).join("")}</div></li>
+        <li><b>Payment.</b> ${group
+          ? `Your group earns <b>${rate} per point</b> on the group's total, split equally among all members, no matter who did which task. That is up to <b>${max} each</b> if all ${n} tasks are rated Very good. If the group's total is below zero, everyone gets ₹0.`
+          : `You earn <b>${rate} per point</b>, up to <b>${max}</b> if all ${n} tasks are rated Very good. If your total is below zero, you get ₹0.`}</li>
       </ol>
-      <div class="scaletbl" aria-label="Rating scale">${SCALE.map(([v,l]) => `<div>${l}<b>${v>0?"+":v<0?"−":""}${Math.abs(v)}</b></div>`).join("")}</div>
-      <p>${group
-        ? `<b>Payment:</b> your group earns max(total points × ₹${RS_PER_POINT}, 0). It is split equally among all members, regardless of who did which task.`
-        : `<b>Payment:</b> you earn max(total points × ₹${RS_PER_POINT}, 0).`}</p>
-      ${st.plantedErrors ? `<div class="disclaimer"><b>About the AI agent.</b> ${esc(DISCLAIMER)}</div>` : ""}`;
+      ${st.plantedErrors ? `<div class="disclaimer"><b>About the AI agent.</b> ${esc(DISCLAIMER)}</div>` : ""}
+      ${compact ? "" : `<div><div class="eyebrow" style="margin-bottom:6px">Good to know</div>
+      <ul class="rules">
+        <li>The clock can't be paused once it starts.</li>
+        <li>Stay in this browser. If you close the page, open the site again in the same browser and you'll be signed straight back in.</li>
+        <li>Finished early? Press <b>I'm done</b>. You can't do more tasks after that.</li>
+        <li>You can reopen these instructions at any time with the <b>Instructions</b> button.</li>
+      </ul></div>`}`;
   },
   lobbyView(){
     const st = this.state, group = st.condition === "group";
     const slots = Array.from({length: st.size}, (_, i) => st.members[i]);
-    const full = st.members.length >= st.size;
+    const joined = st.members.length, full = joined >= st.size;
+    const ack = !!this.ack[st.code];
     return `
-    <section class="grid2">
+    <section class="lobby">
       <div class="panel">
-        <div class="eyebrow">${group ? "Group session" : "Individual session"} · ${esc(st.code)}</div>
-        <h1>${full ? "Ready to start" : group ? "Waiting for your group" : "Ready to start"}</h1>
-        ${group ? `<p class="muted">${st.members.length} of ${st.size} members have joined.</p>
-          <div class="memberlist">${slots.map(m => m ? `<span class="${m.memberId === st.me.memberId ? "me" : ""}">${esc(m.name)}${m.memberId === st.me.memberId ? " (you)" : ""}</span>` : `<span class="empty">Waiting…</span>`).join("")}</div>` :
-          `<p>Signed in as <b>${esc(st.me.name)}</b>.</p>`}
-        <p class="muted small">${group ? "Any member can start once all four have joined. Starting begins the reading minute for everyone." : "The clock starts as soon as you press Start."} Stay in this browser: it keeps you signed in.</p>
-        ${this.error ? `<p class="err" role="alert">${esc(this.error)}</p>` : ""}
-        <div class="row">
-          <button type="button" class="btn primary" data-act="begin" ${full ? "" : "disabled"}>Start</button>
-          <div class="spacer"></div>
-          <button type="button" class="linkbtn small" data-act="leave-lobby">Not ${esc(st.me.name)}? Leave and free this seat</button>
-        </div>
-        ${group ? `<p class="small muted">Testing several members on one computer? <button type="button" class="linkbtn" data-act="switch-tab">Use this tab for another person</button> (${esc(st.me.name)} stays signed in on their own tab).</p>` : ""}
+        <div class="eyebrow">Instructions · please read before you start</div>
+        <h1>How this works</h1>
+        ${this.instructionsHtml(st, false)}
       </div>
-      <div class="panel">
-        <div class="eyebrow">How it works</div>
-        ${this.rulesHtml(st)}
+      <div class="panel startcard">
+        <div class="eyebrow">${group ? "Group session" : "Individual session"} · ${esc(st.code)}</div>
+        <h2>${group ? (full ? "Your group is complete" : `${joined} of ${st.size} members here`) : `Hi ${esc(st.me.name)}`}</h2>
+        ${group ? `<div class="memberlist">${slots.map(m => m ? `<span class="${m.memberId === st.me.memberId ? "me" : ""}">${esc(m.name)}${m.memberId === st.me.memberId ? " (you)" : ""}</span>` : `<span class="empty">Waiting…</span>`).join("")}</div>` : ""}
+        <label class="check"><input type="checkbox" id="lb-ack" ${ack ? "checked" : ""}> I've read the instructions</label>
+        ${this.error ? `<p class="err" role="alert">${esc(this.error)}</p>` : ""}
+        <button type="button" class="btn primary big-start" data-act="begin" data-full="${full ? 1 : 0}" data-joined="${joined}" ${ack ? "" : "disabled"}>${group ? "Start for the whole group" : "Start"}</button>
+        <p class="small muted">${group
+          ? (full ? "Pressing Start begins the reading time for all four of you." : `You can wait for everyone, or start now. Nobody else can join once the group has started.`)
+          : `Pressing Start begins ${fmtDur(st.previewSec)} of reading time, then ${fmtDur(st.workSec)} of work.`}</p>
+        <div class="row small"><button type="button" class="linkbtn" data-act="leave-lobby">Not ${esc(st.me.name)}? Leave and free this seat</button></div>
+        ${group ? `<p class="small muted">Testing several members on one computer? <button type="button" class="linkbtn" data-act="switch-tab">Use this tab for another person</button></p>` : ""}
       </div>
     </section>`;
   },
@@ -501,8 +521,10 @@ const P = {
       <div class="small"><b>${doneCount} of ${st.tasks.length}</b> tasks submitted${group ? ` by your group · ${mineCount} by you` : ""}</div>
       <div class="spacer"></div>
       <div class="small muted">${group ? "Group" : "Individual"} · ${esc(st.code)} · <b>${esc(st.me.name)}</b></div>
+      <button type="button" class="btn sm" data-act="help" aria-expanded="${this.showHelp}">${this.showHelp ? "Hide instructions" : "Instructions"}</button>
       <button type="button" class="btn sm" data-act="finish" title="End your session now. You can't do more tasks afterwards.">I'm done</button>
     </div>
+    ${this.showHelp ? `<section class="panel"><div class="row"><h2>Instructions</h2><div class="spacer"></div><button type="button" class="btn sm" data-act="help">Hide</button></div>${this.instructionsHtml(st, true)}</section>` : ""}
     <div class="work">
       <nav class="tasklist" aria-label="Tasks">
         ${st.tasks.map((t, i) => `<button type="button" data-open="${t.id}" class="${st.status[t.id]?.by ? "done" : ""}" aria-current="${t.id === task.id}"><span class="num">${String(i+1).padStart(2,"0")}</span><span class="t">${esc(t.title)}</span>${chip(t)}</button>`).join("")}
@@ -532,7 +554,7 @@ const P = {
       <p>Thank you${group ? "" : ", " + esc(st.me.name)}. ${group ? `Your group has submitted <b>${team.length} of ${tasks.length}</b> tasks, ${mine.length} of them by you.` : `You submitted <b>${mine.length} of ${tasks.length}</b> tasks.`}</p>
       ${left}
       ${group && st.me.finished && !timeUp && !st.allSubmitted ? `<p class="muted">Your teammates can keep working until the clock runs out.</p>` : ""}
-      <p class="muted">Independent graders will now rate the submissions. Your payment is worked out once grading is complete${group ? " and is split equally across the group" : ""}.</p>
+      <p class="muted">Independent graders will now rate the submissions. Your payment (${inr(st.rsPerPoint)} per point, up to ${inr(st.maxPayout)}${group ? " each, split equally across the group" : ""}) is worked out once grading is complete.</p>
       <div class="row"><button type="button" class="btn" data-act="leave">Sign out</button></div>
     </section>`;
   },
@@ -666,9 +688,9 @@ const A = {
       const mem = d.members.filter(m => m.code === s.code);
       const fins = (d.finishes || []).filter(f => f.code === s.code);
       const closedEarly = (s.phase === "preview" || s.phase === "work") && (ss.length >= s.taskIds.length || (mem.length > 0 && fins.length >= mem.length));
-      const pool = Math.max(points * RS_PER_POINT, 0);
+      const rate = rateOf(s.settings), pool = Math.max(points * rate, 0);
       return { ...s, members: mem, closedEarly, finishedCount: fins.length, subCount: ss.length, aiCount: ss.filter(x => x.aiUsed).length, graded: graded.length, points,
-        pool, perPerson: mem.length ? pool / (s.condition === "group" ? mem.length : 1) : 0, complete: ss.length > 0 && graded.length === ss.length };
+        rate, pool, perPerson: mem.length ? pool / (s.condition === "group" ? mem.length : 1) : 0, complete: ss.length > 0 && graded.length === ss.length };
     }).sort((a, b) => b.createdAt - a.createdAt);
     const cond = (c) => {
       const ps = people.filter(p => p.condition === c && p.share != null);
@@ -765,7 +787,11 @@ const A = {
             <label class="field" for="s-prev" style="flex:1;min-width:140px">Reading time (seconds)<input type="number" id="s-prev" min="0" max="600" value="${s.previewSec}"></label>
             <label class="field" for="s-work" style="flex:1;min-width:140px">Working time (seconds)<input type="number" id="s-work" min="30" max="7200" value="${s.workSec}"></label>
           </div>
-          <p class="small muted">Changes apply to sessions created after you save. The study design is 60 and 600 seconds.</p>
+          <div class="row">
+            <label class="field" for="s-max" style="flex:1;min-width:140px">Maximum payout per person (₹)<input type="number" id="s-max" min="0" max="100000" value="${s.maxPayout ?? 125}"></label>
+            <p class="small muted" style="flex:1;min-width:180px">= ${inr(rateOf(s))} per point. Groups: up to ${inr((s.maxPayout ?? 125) * 4)} pooled, split equally.</p>
+          </div>
+          <p class="small muted">Changes apply to sessions created after you save. The study design is 60 and 600 seconds, and up to ₹125 per person.</p>
           <div class="row"><button class="btn" type="submit" ${this.busy ? "disabled" : ""}>Save settings</button></div>
         </form>
       </div>`;
@@ -786,7 +812,7 @@ const A = {
           <button type="button" class="btn sm danger" data-act="del-trials" ${trials ? "" : "disabled"}>Delete all trial sessions</button>
           <button type="button" class="btn sm danger" data-act="del-all" ${ss.length ? "" : "disabled"}>Delete all data</button>
         </div>
-        <p class="small muted">Deleting removes the session with all its members, AI drafts, submissions and grades. It can't be undone. Payout is max(points × ₹${RS_PER_POINT}, 0); groups split it equally among their members.</p>
+        <p class="small muted">Deleting removes the session with all its members, AI drafts, submissions and grades. It can't be undone. Payout is max(points × rate, 0), where the rate is set so a perfect individual earns the maximum (₹${(this.info.settings.maxPayout ?? 125)} by default = ${inr(rateOf(this.info.settings))} per point). Groups split their pool equally among their members.</p>
         <div class="tablewrap"><table>
           <thead><tr><th><input type="checkbox" id="sel-all" aria-label="Select all sessions" ${n && n === ss.length ? "checked" : ""}></th><th>Code</th><th>Condition</th><th>Note</th><th>Members</th><th>Status</th><th class="num">Submitted</th><th class="num">With AI</th><th class="num">Graded</th><th class="num">Points</th><th class="num">Payout / person</th><th></th></tr></thead>
           <tbody>${ss.map(s => `<tr class="${s.trial ? "trial" : ""}">
@@ -804,7 +830,6 @@ const A = {
             <td class="num">${s.graded ? sgn(s.points) : "–"}</td>
             <td class="num">${s.graded ? inr(s.perPerson) + (s.complete ? "" : ` <span class="chip">so far</span>`) : "–"}</td>
             <td><div class="row" style="flex-wrap:nowrap;gap:6px">
-              ${s.phase === "lobby" ? `<button type="button" class="btn sm" data-act="start" data-code="${s.code}" ${s.members.length ? "" : "disabled"} title="Start even if not everyone has joined">Start now</button>` : ""}
               <button type="button" class="btn sm" data-act="copy-code" data-code="${s.code}">Copy link</button>
               <button type="button" class="btn sm" data-act="trial" data-code="${s.code}" data-trial="${s.trial ? "0" : "1"}">${s.trial ? "Mark as real" : "Mark as trial"}</button>
               <button type="button" class="btn sm danger" data-act="del-one" data-code="${s.code}">Delete</button>
@@ -976,7 +1001,7 @@ document.addEventListener("submit", (e) => {
     A.act("/admin/create", { condition: A.form.condition, label: A.form.label, trial: A.form.trial }, (r) => { A.created = r; A.form.label = ""; return ""; });
   }
   else if (id === "settingsform") {
-    const s = { agentMode: document.querySelector('input[name="s-mode"]:checked')?.value, plantedErrors: $("#s-planted").checked, previewSec: $("#s-prev").value, workSec: $("#s-work").value };
+    const s = { agentMode: document.querySelector('input[name="s-mode"]:checked')?.value, plantedErrors: $("#s-planted").checked, previewSec: $("#s-prev").value, workSec: $("#s-work").value, maxPayout: $("#s-max").value };
     A.act("/admin/settings", { settings: s }, (r) => { A.info.settings = r.settings; A.settingsDraft = { ...r.settings }; return "Settings saved. They apply to new sessions."; });
   }
 });
@@ -988,12 +1013,14 @@ document.addEventListener("input", (e) => {
   if (A.settingsDraft) {
     if (t.id === "s-prev") A.settingsDraft.previewSec = t.value;
     if (t.id === "s-work") A.settingsDraft.workSec = t.value;
+    if (t.id === "s-max") A.settingsDraft.maxPayout = t.value;
   }
 });
 document.addEventListener("change", (e) => {
   const t = e.target;
   if (t.name === "c-cond") A.form.condition = t.value;
   if (t.id === "c-trial") A.form.trial = t.checked;
+  if (t.id === "lb-ack" && P.state) { P.ack[P.state.code] = t.checked; P.render(); }
   if (t.name === "s-mode" && A.settingsDraft) A.settingsDraft.agentMode = t.value;
   if (t.id === "s-planted" && A.settingsDraft) A.settingsDraft.plantedErrors = t.checked;
   if (t.id === "incl-trial") { A.includeTrial = t.checked; ls.set("dl-incl-trial", t.checked); A.render(); }
@@ -1015,7 +1042,11 @@ document.addEventListener("click", (e) => {
   if (t.dataset.expand) { const id = t.dataset.expand; A.expanded.has(id) ? A.expanded.delete(id) : A.expanded.add(id); A.render(); return; }
   const act = t.dataset.act; if (!act) return;
   switch (act) {
-    case "begin": P.begin(); break;
+    case "begin":
+      if (t.dataset.full === "1" || P.state?.size === 1) P.begin(false);
+      else confirmClick(t, "begin", `Only ${t.dataset.joined} of 4 here. Click again to start anyway`, () => P.begin(true));
+      break;
+    case "help": P.showHelp = !P.showHelp; P.render(); break;
     case "leave": P.leave(""); break;
     case "leave-lobby": P.leaveLobby(); break;
     case "switch-tab": P.switchTab(); break;
@@ -1030,7 +1061,6 @@ document.addEventListener("click", (e) => {
     case "a-out": A.key = null; A.info = null; A.data = null; ls.del("dl-akey"); clearTimers(); A.render(); break;
     case "copy-link": copyText(t, $("#c-link").value, "c-link"); break;
     case "copy-code": { const link = `${location.origin}${location.pathname}?s=${t.dataset.code}`; copyText(t, link, null); break; }
-    case "start": A.act("/admin/start", { code: t.dataset.code }, `Session ${t.dataset.code} started.`); break;
     case "trial": A.act("/admin/trial", { code: t.dataset.code, trial: t.dataset.trial === "1" }, ""); break;
     case "del-one": confirmClick(t, "one-" + t.dataset.code, "Click again to delete", () => A.act("/admin/delete", { codes: [t.dataset.code] }, `Deleted session ${t.dataset.code}.`)); break;
     case "del-selected": confirmClick(t, "sel", `Click again to delete ${A.selected.size}`, () => { const codes = [...A.selected]; A.selected.clear(); A.act("/admin/delete", { codes }, `Deleted ${codes.length} session${codes.length === 1 ? "" : "s"}.`); }); break;

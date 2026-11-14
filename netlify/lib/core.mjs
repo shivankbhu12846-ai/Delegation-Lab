@@ -4,9 +4,12 @@
 
 import { TASKS } from "./tasks.mjs";
 
-export const DEFAULTS = { plantedErrors: true, agentMode: "live", previewSec: 60, workSec: 600 };
+export const DEFAULTS = { plantedErrors: true, agentMode: "live", previewSec: 60, workSec: 600, maxPayout: 125 };
 const INDIVIDUAL_TASKS = 10;
 const GROUP_SIZE = 4;
+// Payout: max(points × rate, 0) per individual; groups get the same on the group total, split equally.
+// The rate is set so a perfect individual (10 tasks × +2) earns exactly maxPayout.
+export const rateFor = (settings) => (settings?.maxPayout ?? DEFAULTS.maxPayout) / (INDIVIDUAL_TASKS * 2);
 const GRACE_MS = 5000; // network allowance at the end of the clock
 const MODEL_TIMEOUT_MS = 25000;
 const TASK = Object.fromEntries(TASKS.map((t) => [t.id, t]));
@@ -311,6 +314,7 @@ export function createHandler({ store, env = {}, now = () => Date.now(), fetchIm
         now: now(), code, condition: session.condition, size: session.size,
         plantedErrors: session.settings.plantedErrors, previewSec: session.settings.previewSec, workSec: session.settings.workSec,
         tasksPerPerson: INDIVIDUAL_TASKS, totalTasks: session.taskIds.length,
+        maxPayout: session.settings.maxPayout ?? DEFAULTS.maxPayout, rsPerPoint: rateFor(session.settings),
         me: { memberId: me.memberId, name: me.name, finished: finishedIds.includes(me.memberId) }, members: mem, ...tm, status,
         finished: finishedIds.map(nameOf), allSubmitted: doneKeys.length >= session.taskIds.length,
       };
@@ -331,8 +335,10 @@ export function createHandler({ store, env = {}, now = () => Date.now(), fetchIm
     "POST /start": async (b) => {
       const { code, session } = await asMember(b);
       const mem = await members(code);
-      if (mem.length < session.size) fail(409, `Waiting for ${session.size - mem.length} more ${session.size - mem.length === 1 ? "member" : "members"} to join.`);
-      await put(`start/${code}`, { startedAt: now(), by: slug(b.memberId) }, { onlyIfNew: true });
+      if (mem.length < session.size && b.force !== true) {
+        fail(409, `Only ${mem.length} of ${session.size} members have joined. Nobody else can join once you start.`);
+      }
+      await put(`start/${code}`, { startedAt: now(), by: slug(b.memberId), membersAtStart: mem.length }, { onlyIfNew: true });
       return { ok: true };
     },
 
@@ -446,6 +452,7 @@ export function createHandler({ store, env = {}, now = () => Date.now(), fetchIm
         agentMode: s.agentMode === "prepared" ? "prepared" : "live",
         previewSec: clamp(s.previewSec, 0, 600, DEFAULTS.previewSec),
         workSec: clamp(s.workSec, 30, 7200, DEFAULTS.workSec),
+        maxPayout: clamp(s.maxPayout, 0, 100000, DEFAULTS.maxPayout),
       };
       await put("config/settings", next);
       return { settings: next };

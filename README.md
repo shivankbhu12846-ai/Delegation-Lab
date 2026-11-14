@@ -2,8 +2,8 @@
 
 A timed online experiment that tests whether people rely more on an AI agent when they work in a group with equally shared rewards than when they work alone.
 
-- **Individual:** 10 random tasks from a repository of 40. Paid max(points × ₹2, 0).
-- **Group of four:** all 40 tasks, with each member on their own computer. The group's max(points × ₹2, 0) is split equally among the members.
+- **Individual:** 10 random tasks from a repository of 40. Paid max(points × ₹6.25, 0): up to ₹125.
+- **Group of four:** all 40 tasks, with each member on their own computer. The group's max(points × ₹6.25, 0) is split equally among the members: up to ₹125 each.
 - **Timing:** 1 minute to read the tasks, then 10 minutes to work.
 - **AI agent:** one click per task. Participants can edit the agent's draft before submitting. Every AI request, every edit and its extent, and every submission are recorded.
 - **Grading:** independent graders rate each submission as Bad, Not good, Satisfactory, Good or Very good. They never see numbers, the condition, or whether AI was used. These ratings count as −2 to +2.
@@ -18,6 +18,10 @@ A timed online experiment that tests whether people rely more on an AI agent whe
 | `netlify/lib/tasks.mjs` | The 40 tasks, with prepared answers and planted errors. This file stays on the server. |
 | `package.json`, `netlify.toml` | Netlify setup |
 | `build-demo.mjs` | Builds a one-file demo that runs without a server (optional) |
+| `tests/` | Automated tests: run `npm test` (Node 20+, no install needed) |
+| `scripts/dev-server.mjs` | Local preview with a fake AI model: `npm run dev` |
+| `CLAUDE.md`, `.claude/settings.json` | Instructions and safety rules for Claude Code sessions on this repo |
+| `BUILD_LOG.md` | Bugs found and fixed, with before/after evidence |
 
 ## Put it online
 
@@ -42,7 +46,7 @@ Data is stored in Netlify Blobs, which needs no setup.
 1. Open `your-site.netlify.app/#admin` and sign in.
 2. Under *Create a session*, choose **Individual** or **Group of four**. Tick *Trial run* for test sessions. You get a 6-character code and a link.
 3. Participants open the link, or the site, and enter the code and their name. Group members join from their own computers.
-4. **Starting.** An individual presses *Start*. In a group, any member can press *Start* once all four have joined. You can also press *Start now* in the sessions table, for example if a member doesn't show up.
+4. **Starting.** Participants start the session themselves; you don't need to do anything. Each person first sees full instructions and ticks *I've read the instructions*. An individual then presses *Start*. In a group, any member can press *Start for the whole group*. If not everyone has joined yet, they're asked to click again to confirm, because nobody can join after the start. The group's pay is then split among the members who joined.
 5. The 1-minute reading time begins. Participants can read every task but can't write or use the AI. Then the 10-minute working time runs. Only submitted tasks count.
 6. **Finishing.** A participant who is done presses *I'm done* (it asks for a second click to confirm). They can't do more tasks after that and can sign out. When every task is submitted, or every group member has pressed *I'm done*, the session ends early. Teammates keep working until then. The time each person had left is recorded.
 7. Graders open `your-site.netlify.app/#grade` and grade submissions from finished sessions.
@@ -72,6 +76,7 @@ Data is stored in Netlify Blobs, which needs no setup.
 
 - **AI agent:** *Live model* calls your API key. If a call fails, the agent uses the prepared answer and logs why. *Prepared answers only* is useful for trial runs.
 - **Planted errors:** in each block of four tasks, one AI output contains a specific error. This keeps the statement shown to participants true: "the AI agent's output is rated Good or Very good about 75% of the time". Turn this off to hide the statement and the errors.
+- **Maximum payout per person:** ₹125 by default. The rate per point is set so a perfect individual (10 tasks rated Very good) earns exactly this amount: ₹125 ÷ 20 points = ₹6.25 per point. Participants see the rate and the maximum in their instructions.
 - **Reading and working time:** the defaults are 60 and 600 seconds. Shorten them for quick trials.
 
 Settings apply to sessions created after you save them.

@@ -13,9 +13,7 @@ const store = memoryStore(saved, (m) => { try { localStorage.setItem("dl-demo-st
 window.DEMO_HANDLER = createHandler({ store, demo: true });
 })();
 </script>`;
-const head = page.match(/<head>([\s\S]*?)<\/head>/)[1].replace(/<meta charset[^>]*>\s*/, "").replace(/<meta name="viewport"[^>]*>\s*/, "");
-let body = page.match(/<body>([\s\S]*?)<\/body>/)[1];
-const i = body.lastIndexOf("<script>");
-body = body.slice(0, i) + demo + "\n" + body.slice(i);
-fs.writeFileSync(process.argv[2], head.trim() + "\n" + body.trim() + "\n");
+// Keep the whole page (doctype, head, body) and add the in-browser server just before the app script.
+const i = page.lastIndexOf("<script>");
+fs.writeFileSync(process.argv[2], page.slice(0, i) + demo + "\n" + page.slice(i));
 console.log("demo written", process.argv[2]);
