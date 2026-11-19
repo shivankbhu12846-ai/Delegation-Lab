@@ -177,7 +177,10 @@ svg text{fill:var(--muted);font-family:var(--f-body);font-size:12px}
 const SCALE = [[-2,"Bad"],[-1,"Not good"],[0,"Satisfactory"],[1,"Good"],[2,"Very good"]];
 const LABEL = Object.fromEntries(SCALE);
 // Payout rate: a perfect individual (10 tasks × +2 points) earns the maximum payout
-const rateOf = (settings) => ((settings && settings.maxPayout) ?? 125) / 20;
+// group: a perfect group (40 tasks × +2 points) earns the group maximum, split equally
+const rateOf = (settings, condition) => condition === "group"
+  ? ((settings && settings.groupMaxPayout) ?? 200) / 80
+  : ((settings && settings.maxPayout) ?? 125) / 20;
 const DISCLAIMER = "Past organisational experience shows that the AI agent’s output is rated Good or Very good about 75% of the time.";
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -438,7 +441,7 @@ const P = {
         <li><b>Grading.</b> Afterwards, independent graders rate every submitted task without knowing who wrote it. A task you don't submit scores 0, so a poor answer can cost more than skipping.
           <div class="scaletbl" aria-label="Rating scale" style="margin-top:8px">${SCALE.map(([v,l]) => `<div>${l}<b>${v>0?"+":v<0?"−":""}${Math.abs(v)} point${Math.abs(v)===1?"":"s"}</b></div>`).join("")}</div></li>
         <li><b>Payment.</b> ${group
-          ? `Your group earns <b>${rate} per point</b> on the group's total, split equally among all members, no matter who did which task. That is up to <b>${max} each</b> if all ${n} tasks are rated Very good. If the group's total is below zero, everyone gets ₹0.`
+          ? `Your group earns <b>${rate} per point</b> on the group's total, up to <b>${inr(st.poolMax)} for the group</b> if all ${n} tasks are rated Very good. The amount is split equally among all members, no matter who did which task: up to <b>${max} each</b>. If the group's total is below zero, everyone gets ₹0.`
           : `You earn <b>${rate} per point</b>, up to <b>${max}</b> if all ${n} tasks are rated Very good. If your total is below zero, you get ₹0.`}</li>
       </ol>
       ${st.plantedErrors ? `<div class="disclaimer"><b>About the AI agent.</b> ${esc(DISCLAIMER)}</div>` : ""}
@@ -554,7 +557,7 @@ const P = {
       <p>Thank you${group ? "" : ", " + esc(st.me.name)}. ${group ? `Your group has submitted <b>${team.length} of ${tasks.length}</b> tasks, ${mine.length} of them by you.` : `You submitted <b>${mine.length} of ${tasks.length}</b> tasks.`}</p>
       ${left}
       ${group && st.me.finished && !timeUp && !st.allSubmitted ? `<p class="muted">Your teammates can keep working until the clock runs out.</p>` : ""}
-      <p class="muted">Independent graders will now rate the submissions. Your payment (${inr(st.rsPerPoint)} per point, up to ${inr(st.maxPayout)}${group ? " each, split equally across the group" : ""}) is worked out once grading is complete.</p>
+      <p class="muted">Independent graders will now rate the submissions. Your payment (${group ? `${inr(st.rsPerPoint)} per point for the group, up to ${inr(st.poolMax)} for the group, split equally` : `${inr(st.rsPerPoint)} per point, up to ${inr(st.maxPayout)}`}) is worked out once grading is complete.</p>
       <div class="row"><button type="button" class="btn" data-act="leave">Sign out</button></div>
     </section>`;
   },
@@ -688,7 +691,7 @@ const A = {
       const mem = d.members.filter(m => m.code === s.code);
       const fins = (d.finishes || []).filter(f => f.code === s.code);
       const closedEarly = (s.phase === "preview" || s.phase === "work") && (ss.length >= s.taskIds.length || (mem.length > 0 && fins.length >= mem.length));
-      const rate = rateOf(s.settings), pool = Math.max(points * rate, 0);
+      const rate = rateOf(s.settings, s.condition), pool = Math.max(points * rate, 0);
       return { ...s, members: mem, closedEarly, finishedCount: fins.length, subCount: ss.length, aiCount: ss.filter(x => x.aiUsed).length, graded: graded.length, points,
         rate, pool, perPerson: mem.length ? pool / (s.condition === "group" ? mem.length : 1) : 0, complete: ss.length > 0 && graded.length === ss.length };
     }).sort((a, b) => b.createdAt - a.createdAt);
@@ -788,10 +791,14 @@ const A = {
             <label class="field" for="s-work" style="flex:1;min-width:140px">Working time (seconds)<input type="number" id="s-work" min="30" max="7200" value="${s.workSec}"></label>
           </div>
           <div class="row">
-            <label class="field" for="s-max" style="flex:1;min-width:140px">Maximum payout per person (₹)<input type="number" id="s-max" min="0" max="100000" value="${s.maxPayout ?? 125}"></label>
-            <p class="small muted" style="flex:1;min-width:180px">= ${inr(rateOf(s))} per point. Groups: up to ${inr((s.maxPayout ?? 125) * 4)} pooled, split equally.</p>
+            <label class="field" for="s-max" style="flex:1;min-width:140px">Maximum payout per individual (₹)<input type="number" id="s-max" min="0" max="100000" value="${s.maxPayout ?? 125}"></label>
+            <p class="small muted" style="flex:1;min-width:180px">Individuals: ${inr(rateOf(s, "individual"))} per point.</p>
           </div>
-          <p class="small muted">Changes apply to sessions created after you save. The study design is 60 and 600 seconds, and up to ₹125 per person.</p>
+          <div class="row">
+            <label class="field" for="s-gmax" style="flex:1;min-width:140px">Maximum payout per group (₹)<input type="number" id="s-gmax" min="0" max="100000" value="${s.groupMaxPayout ?? 200}"></label>
+            <p class="small muted" style="flex:1;min-width:180px">Groups: ${inr(rateOf(s, "group"))} per point on the group total, split equally (up to ${inr((s.groupMaxPayout ?? 200) / 4)} each).</p>
+          </div>
+          <p class="small muted">Changes apply to sessions created after you save. The study design is 60 and 600 seconds, up to ₹125 per individual and up to ₹200 per group.</p>
           <div class="row"><button class="btn" type="submit" ${this.busy ? "disabled" : ""}>Save settings</button></div>
         </form>
       </div>`;
@@ -812,7 +819,7 @@ const A = {
           <button type="button" class="btn sm danger" data-act="del-trials" ${trials ? "" : "disabled"}>Delete all trial sessions</button>
           <button type="button" class="btn sm danger" data-act="del-all" ${ss.length ? "" : "disabled"}>Delete all data</button>
         </div>
-        <p class="small muted">Deleting removes the session with all its members, AI drafts, submissions and grades. It can't be undone. Payout is max(points × rate, 0), where the rate is set so a perfect individual earns the maximum (₹${(this.info.settings.maxPayout ?? 125)} by default = ${inr(rateOf(this.info.settings))} per point). Groups split their pool equally among their members.</p>
+        <p class="small muted">Deleting removes the session with all its members, AI drafts, submissions and grades. It can't be undone. Payout is max(points × rate, 0). Individuals: up to ${inr(this.info.settings.maxPayout ?? 125)} (${inr(rateOf(this.info.settings, "individual"))} per point). Groups: up to ${inr(this.info.settings.groupMaxPayout ?? 200)} per group (${inr(rateOf(this.info.settings, "group"))} per point), split equally among members.</p>
         <div class="tablewrap"><table>
           <thead><tr><th><input type="checkbox" id="sel-all" aria-label="Select all sessions" ${n && n === ss.length ? "checked" : ""}></th><th>Code</th><th>Condition</th><th>Note</th><th>Members</th><th>Status</th><th class="num">Submitted</th><th class="num">With AI</th><th class="num">Graded</th><th class="num">Points</th><th class="num">Payout / person</th><th></th></tr></thead>
           <tbody>${ss.map(s => `<tr class="${s.trial ? "trial" : ""}">
@@ -1001,7 +1008,7 @@ document.addEventListener("submit", (e) => {
     A.act("/admin/create", { condition: A.form.condition, label: A.form.label, trial: A.form.trial }, (r) => { A.created = r; A.form.label = ""; return ""; });
   }
   else if (id === "settingsform") {
-    const s = { agentMode: document.querySelector('input[name="s-mode"]:checked')?.value, plantedErrors: $("#s-planted").checked, previewSec: $("#s-prev").value, workSec: $("#s-work").value, maxPayout: $("#s-max").value };
+    const s = { agentMode: document.querySelector('input[name="s-mode"]:checked')?.value, plantedErrors: $("#s-planted").checked, previewSec: $("#s-prev").value, workSec: $("#s-work").value, maxPayout: $("#s-max").value, groupMaxPayout: $("#s-gmax").value };
     A.act("/admin/settings", { settings: s }, (r) => { A.info.settings = r.settings; A.settingsDraft = { ...r.settings }; return "Settings saved. They apply to new sessions."; });
   }
 });
@@ -1014,6 +1021,7 @@ document.addEventListener("input", (e) => {
     if (t.id === "s-prev") A.settingsDraft.previewSec = t.value;
     if (t.id === "s-work") A.settingsDraft.workSec = t.value;
     if (t.id === "s-max") A.settingsDraft.maxPayout = t.value;
+    if (t.id === "s-gmax") A.settingsDraft.groupMaxPayout = t.value;
   }
 });
 document.addEventListener("change", (e) => {

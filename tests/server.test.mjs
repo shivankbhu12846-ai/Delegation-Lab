@@ -119,8 +119,8 @@ const fbRec = d.agents.find((a) => a.code === s3.code);
 assert.equal(fbRec.source, "prepared"); assert.equal(fbRec.fallback, "boom"); assert.ok(fb.text.length > 10);
 
 // settings
-const set = await call("POST", "/admin/settings", { settings: { plantedErrors: false, agentMode: "prepared", previewSec: 10, workSec: 120, maxPayout: 200 } }, "pw");
-assert.deepEqual(set.settings, { plantedErrors: false, agentMode: "prepared", previewSec: 10, workSec: 120, maxPayout: 200 });
+const set = await call("POST", "/admin/settings", { settings: { plantedErrors: false, agentMode: "prepared", previewSec: 10, workSec: 120, maxPayout: 200, groupMaxPayout: 300 } }, "pw");
+assert.deepEqual(set.settings, { plantedErrors: false, agentMode: "prepared", previewSec: 10, workSec: 120, maxPayout: 200, groupMaxPayout: 300 });
 const s4 = await call("POST", "/admin/create", { condition: "group" }, "pw");
 assert.equal(s4.weak.length, 0); assert.equal(s4.settings.workSec, 120);
 

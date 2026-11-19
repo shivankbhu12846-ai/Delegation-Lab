@@ -3,7 +3,7 @@
 A timed online experiment that tests whether people rely more on an AI agent when they work in a group with equally shared rewards than when they work alone.
 
 - **Individual:** 10 random tasks from a repository of 40. Paid max(points × ₹6.25, 0): up to ₹125.
-- **Group of four:** all 40 tasks, with each member on their own computer. The group's max(points × ₹6.25, 0) is split equally among the members: up to ₹125 each.
+- **Group of four:** all 40 tasks, with each member on their own computer. The group earns max(group points × ₹2.50, 0), up to ₹200 per group, split equally among the members: up to ₹50 each.
 - **Timing:** 1 minute to read the tasks, then 10 minutes to work.
 - **AI agent:** one click per task. Participants can edit the agent's draft before submitting. Every AI request, every edit and its extent, and every submission are recorded.
 - **Grading:** independent graders rate each submission as Bad, Not good, Satisfactory, Good or Very good. They never see numbers, the condition, or whether AI was used. These ratings count as −2 to +2.
@@ -76,7 +76,7 @@ Data is stored in Netlify Blobs, which needs no setup.
 
 - **AI agent:** *Live model* calls your API key. If a call fails, the agent uses the prepared answer and logs why. *Prepared answers only* is useful for trial runs.
 - **Planted errors:** in each block of four tasks, one AI output contains a specific error. This keeps the statement shown to participants true: "the AI agent's output is rated Good or Very good about 75% of the time". Turn this off to hide the statement and the errors.
-- **Maximum payout per person:** ₹125 by default. The rate per point is set so a perfect individual (10 tasks rated Very good) earns exactly this amount: ₹125 ÷ 20 points = ₹6.25 per point. Participants see the rate and the maximum in their instructions.
+- **Maximum payout:** individuals up to ₹125, groups up to ₹200 per group (both are settings). The rate per point is set so a perfect result earns exactly the maximum: ₹125 ÷ 20 points = ₹6.25 per point for individuals, and ₹200 ÷ 80 points = ₹2.50 per point on the group's total, split equally (up to ₹50 each). Participants see their rate and maximum in the instructions.
 - **Reading and working time:** the defaults are 60 and 600 seconds. Shorten them for quick trials.
 
 Settings apply to sessions created after you save them.

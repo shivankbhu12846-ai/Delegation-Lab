@@ -5,6 +5,7 @@ Experiment platform for Shivank Verma's research paper (Agentic AI in Strategy a
 ## Layout
 - `public/index.html`: the whole website (participant `/`, grader `#grade`, experimenter `#admin`)
 - `netlify/lib/core.mjs`: server logic. `netlify/lib/tasks.mjs`: the 40 tasks (server only). `netlify/functions/api.mjs`: Netlify entry point
+- `GRADING_RUBRIC.md`: the fixed grading criteria for every grader, human or AI. Don't change it once real grading has started.
 - Deployed from GitHub to Netlify. Data lives in Netlify Blobs. Secrets are Netlify environment variables.
 
 ## Commands
@@ -16,6 +17,6 @@ Experiment platform for Shivank Verma's research paper (Agentic AI in Strategy a
 1. Never loosen sign-in. A name already in a session needs that browser's token or the experimenter's one-time rejoin code. Any change to join, leave, tokens or reset must keep `tests/impersonation.test.mjs` passing, and needs a new test that tries to impersonate someone.
 2. Graders must never see the condition, names, AI use or numeric scores. Participants must never receive `answer`, `weak` or `flaw` from `tasks.mjs`.
 3. Never delete or rewrite experiment data on the live site. Deleting is the experimenter's job, through the dashboard.
-4. Don't change the design (40 tasks; 10 per individual, 40 per group; 60 s reading + 600 s work; −2..+2 grades; payout max(points × ₹6.25, 0) = up to ₹125 per person, groups split their pool equally; participants start sessions themselves) without asking.
+4. Don't change the design (40 tasks; 10 per individual, 40 per group; 60 s reading + 600 s work; −2..+2 grades; payout max(points × rate, 0): individuals up to ₹125 (₹6.25/point), groups up to ₹200 per group (₹2.50/point on the group total) split equally, i.e. up to ₹50 each; participants start sessions themselves) without asking.
 5. Commit before big changes. Log every bug fix in `BUILD_LOG.md` with before, after and how it was tested.
 6. Show proof: test output, a screenshot, or a link. "It should work" is not proof.

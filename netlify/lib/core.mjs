@@ -4,12 +4,16 @@
 
 import { TASKS } from "./tasks.mjs";
 
-export const DEFAULTS = { plantedErrors: true, agentMode: "live", previewSec: 60, workSec: 600, maxPayout: 125 };
+export const DEFAULTS = { plantedErrors: true, agentMode: "live", previewSec: 60, workSec: 600, maxPayout: 125, groupMaxPayout: 200 };
 const INDIVIDUAL_TASKS = 10;
 const GROUP_SIZE = 4;
 // Payout: max(points × rate, 0) per individual; groups get the same on the group total, split equally.
-// The rate is set so a perfect individual (10 tasks × +2) earns exactly maxPayout.
-export const rateFor = (settings) => (settings?.maxPayout ?? DEFAULTS.maxPayout) / (INDIVIDUAL_TASKS * 2);
+// The rate is set so a perfect result earns exactly the maximum:
+//   individual: 10 tasks × +2 = 20 points -> maxPayout (₹125 -> ₹6.25 per point)
+//   group:      40 tasks × +2 = 80 points -> groupMaxPayout for the whole group (₹200 -> ₹2.50 per point), split equally
+export const rateFor = (settings, condition = "individual") => condition === "group"
+  ? (settings?.groupMaxPayout ?? DEFAULTS.groupMaxPayout) / (TASKS.length * 2)
+  : (settings?.maxPayout ?? DEFAULTS.maxPayout) / (INDIVIDUAL_TASKS * 2);
 const GRACE_MS = 5000; // network allowance at the end of the clock
 const MODEL_TIMEOUT_MS = 25000;
 const TASK = Object.fromEntries(TASKS.map((t) => [t.id, t]));
@@ -314,7 +318,10 @@ export function createHandler({ store, env = {}, now = () => Date.now(), fetchIm
         now: now(), code, condition: session.condition, size: session.size,
         plantedErrors: session.settings.plantedErrors, previewSec: session.settings.previewSec, workSec: session.settings.workSec,
         tasksPerPerson: INDIVIDUAL_TASKS, totalTasks: session.taskIds.length,
-        maxPayout: session.settings.maxPayout ?? DEFAULTS.maxPayout, rsPerPoint: rateFor(session.settings),
+        rsPerPoint: rateFor(session.settings, session.condition),
+        ...(session.condition === "group"
+          ? { poolMax: session.settings.groupMaxPayout ?? DEFAULTS.groupMaxPayout, maxPayout: (session.settings.groupMaxPayout ?? DEFAULTS.groupMaxPayout) / session.size }
+          : { maxPayout: session.settings.maxPayout ?? DEFAULTS.maxPayout }),
         me: { memberId: me.memberId, name: me.name, finished: finishedIds.includes(me.memberId) }, members: mem, ...tm, status,
         finished: finishedIds.map(nameOf), allSubmitted: doneKeys.length >= session.taskIds.length,
       };
@@ -453,6 +460,7 @@ export function createHandler({ store, env = {}, now = () => Date.now(), fetchIm
         previewSec: clamp(s.previewSec, 0, 600, DEFAULTS.previewSec),
         workSec: clamp(s.workSec, 30, 7200, DEFAULTS.workSec),
         maxPayout: clamp(s.maxPayout, 0, 100000, DEFAULTS.maxPayout),
+        groupMaxPayout: clamp(s.groupMaxPayout, 0, 100000, DEFAULTS.groupMaxPayout),
       };
       await put("config/settings", next);
       return { settings: next };
